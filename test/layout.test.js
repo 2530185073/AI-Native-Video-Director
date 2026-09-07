@@ -12,7 +12,9 @@ test('layout converts semantic placements into centre-origin pixels', () => {
 
   const punch = layout.punch('above_head');
   assert.ok(punch.transform_y_px > 0, 'punch text sits above centre');
-  assert.ok(!layout.overlapsFace(0.5 - punch.transform_y_px / 1920, 0.06));
+  // VectCut px units: (width, height) is the top-right corner, so a fraction f above centre is f×2×height.
+  assert.ok(!layout.overlapsFace(0.5 - punch.transform_y_px / (2 * 1920), 0.06));
+  assert.equal(subtitle.transform_y_px, Math.round((0.5 - subtitle.yFraction) * 1920 * 2));
 
   const beside = layout.punch('beside_face');
   assert.equal(beside.side, 'right');
@@ -30,6 +32,34 @@ test('layout accepts pixel boxes and falls back to beside_face when there is no 
   assert.ok(layout.face.y < 0.1);
   const punch = layout.punch('above_head');
   assert.ok(punch.side, 'should have fallen back to a side placement');
+});
+
+test('tight close-up framing: overlays adapt to the measured free space', () => {
+  // Real clip: head fills 28%-72% of the width and starts 14.5% from the top.
+  const layout = createLayout({ person: { x: 0.05, y: 0.13, w: 0.9, h: 0.87 }, face: { x: 0.28, y: 0.145, w: 0.44, h: 0.385 } });
+
+  const punch = layout.punch('above_head');
+  const punchY = 0.5 - punch.transform_y_px / (2 * 1920);
+  assert.ok(punchY + 0.03 < layout.face.y, `punch (${punchY}) must clear the hairline (${layout.face.y})`);
+
+  const subtitle = layout.subtitle('lower_third');
+  assert.ok(subtitle.yFraction >= 0.7, 'subtitle goes below the chin');
+
+  // 42%-wide side picture would cover the cheek: only ~24% is free on the right, so it moves under the chin.
+  const pip = layout.broll('pip_side');
+  assert.equal(pip.layout, 'lower_card');
+
+  // A top card has to fit into the 14.5% headroom, so it shrinks instead of sitting on the forehead.
+  const card = layout.broll('card_top');
+  assert.equal(card.layout, 'card_top');
+  const cardBottom = (0.5 - card.transform_y_px / (2 * 1920)) + card.heightPx / 1920 / 2;
+  assert.ok(cardBottom <= layout.face.y + 0.001, `card bottom ${cardBottom} overlaps face top ${layout.face.y}`);
+  assert.ok(card.widthPx >= 0.34 * 1080);
+
+  // Roomier framing keeps the wide card and the side picture.
+  const roomy = createLayout({ person: { x: 0.2, y: 0.2, w: 0.6, h: 0.8 }, face: { x: 0.36, y: 0.2, w: 0.28, h: 0.2 } });
+  assert.equal(roomy.broll('pip_side').layout, 'pip_side');
+  assert.ok(roomy.broll('card_top').widthPx > 500);
 });
 
 test('zoom anchor keeps the face in place while scaling', () => {

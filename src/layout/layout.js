@@ -46,9 +46,13 @@ export function createLayout({ canvas = { width: 1080, height: 1920 }, person, f
   const faceCenterY = faceBox.y + faceBox.h / 2;
   const freeSide = faceCenterX <= 0.5 ? 'right' : 'left';
 
+  // VectCut's "px" coordinate system spans -width..+width / -height..+height with the
+  // centre at (0,0) — i.e. (width, height) is the top-right corner (it stores px/height,
+  // and 剪映 treats 1.0 as half a canvas). A displacement of f×height therefore needs 2×f×height.
+  const PX_UNIT = 2;
   const toPx = (xFraction, yFraction) => ({
-    transform_x_px: Math.round((xFraction - 0.5) * size.width),
-    transform_y_px: Math.round((0.5 - yFraction) * size.height)
+    transform_x_px: Math.round((xFraction - 0.5) * size.width * PX_UNIT),
+    transform_y_px: Math.round((0.5 - yFraction) * size.height * PX_UNIT)
   });
 
   const subtitleY = {
@@ -90,8 +94,12 @@ export function createLayout({ canvas = { width: 1080, height: 1920 }, person, f
         spec = { x: 0.5, y: 0.5, width: 1, aspect: '9:16', coversPerson: true };
         break;
       case 'pip_side': {
-        const x = freeSide === 'right' ? 0.74 : 0.26;
-        spec = { x, y: faceCenterY, width: 0.42, aspect: '1:1', side: freeSide };
+        // Room between the face and the frame edge on the free side, minus a safe margin.
+        const room = (freeSide === 'right' ? 1 - (faceBox.x + faceBox.w) : faceBox.x) - 0.04;
+        if (room < 0.26) return broll('lower_card');
+        const width = Math.min(0.42, room - 0.02);
+        const x = freeSide === 'right' ? 1 - 0.03 - width / 2 : 0.03 + width / 2;
+        spec = { x, y: faceCenterY, width, aspect: '1:1', side: freeSide };
         break;
       }
       case 'lower_card':
@@ -99,8 +107,13 @@ export function createLayout({ canvas = { width: 1080, height: 1920 }, person, f
         break;
       case 'card_top':
       default: {
-        const headroom = faceBox.y;
-        spec = { x: 0.5, y: clamp(headroom / 2, 0.10, 0.28), width: headroom < 0.18 ? 0.6 : 0.82, aspect: '16:9' };
+        // Fit a 16:9 card into the headroom above the hair; if that leaves a postage stamp, go below.
+        const available = faceBox.y - 0.03;
+        const maxWidth = 0.82;
+        const heightFraction = Math.min(available, (maxWidth * size.width * 9 / 16) / size.height);
+        const width = (heightFraction * size.height * 16 / 9) / size.width;
+        if (width < 0.34) return broll('lower_card');
+        spec = { x: 0.5, y: 0.02 + heightFraction / 2, width, aspect: '16:9' };
       }
     }
     const widthPx = Math.round(spec.width * size.width);
@@ -113,8 +126,8 @@ export function createLayout({ canvas = { width: 1080, height: 1920 }, person, f
    * around the canvas centre.
    */
   function zoomAnchor(scale) {
-    const fx = (faceCenterX - 0.5) * size.width;
-    const fy = (0.5 - faceCenterY) * size.height;
+    const fx = (faceCenterX - 0.5) * size.width * PX_UNIT;
+    const fy = (0.5 - faceCenterY) * size.height * PX_UNIT;
     return {
       position_x_px: Math.round(fx * (1 - scale)) || 0,
       position_y_px: Math.round(fy * (1 - scale)) || 0
