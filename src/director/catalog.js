@@ -6,6 +6,7 @@
  * renders in the cloud without silently dropping animations. Descriptions are
  * written for the LLM: they explain *when* an effect fits, not what it looks like.
  */
+import { BGM, SFX } from './audio.js';
 
 export const TEXT_INTRO = [
   { name: '弹入', hint: '默认、最百搭，节奏快' },
@@ -136,6 +137,8 @@ export const BROLL_LAYOUTS = [
 export const TONES = ['energetic', 'authoritative', 'friendly', 'storytelling', 'playful', 'urgent'];
 
 export const CATALOG = {
+  sfx: SFX,
+  bgm: BGM,
   textIntro: TEXT_INTRO,
   textOutro: TEXT_OUTRO,
   textLoop: TEXT_LOOP,
@@ -173,6 +176,8 @@ export function describeCatalog(catalog = CATALOG) {
     line('图片出场动画 imageOutro', catalog.imageOutro),
     line('B-roll 布局 brollLayout', catalog.brollLayouts),
     line('场景特效 sceneEffect', catalog.sceneEffects),
+    line('音效 sfx(挂在 beat 上)', catalog.sfx || [], 'id'),
+    `背景音乐 bgm.track: ${(catalog.bgm || []).map(item => `${item.id}(${item.hint})`).join('、')}、none(不加音乐)`,
     `语气 tone: ${catalog.tones.join('、')}`
   ].join('\n');
 }

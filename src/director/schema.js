@@ -17,10 +17,19 @@ export function buildPlanSchema(catalog = CATALOG) {
   return {
     type: 'object',
     additionalProperties: false,
-    required: ['concept', 'tone', 'subtitleStyle', 'chunks', 'beats'],
+    required: ['concept', 'tone', 'subtitleStyle', 'bgm', 'chunks', 'beats'],
     properties: {
       concept: { type: 'string', minLength: 4, maxLength: 200 },
       tone: { type: 'string', enum: catalog.tones },
+      bgm: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['track', 'reason'],
+        properties: {
+          track: { type: 'string', enum: [...(catalog.bgm || []).map(item => item.id), 'none'] },
+          reason: { type: 'string', minLength: 2, maxLength: 120 }
+        }
+      },
       subtitleStyle: {
         type: 'object',
         additionalProperties: false,
@@ -86,7 +95,8 @@ export function buildPlanSchema(catalog = CATALOG) {
             prompt: { type: 'string', minLength: 6, maxLength: 400 },
             layout: { type: ['string', 'null'], enum: [...names(catalog.brollLayouts), null] },
             imageIntro: { type: ['string', 'null'], enum: [...names(catalog.imageIntro), null] },
-            name: { type: ['string', 'null'], enum: [...names(catalog.sceneEffects), null] }
+            name: { type: ['string', 'null'], enum: [...names(catalog.sceneEffects), null] },
+            sfx: { type: ['string', 'null'], enum: [...(catalog.sfx || []).map(item => item.id), null] }
           }
         }
       }

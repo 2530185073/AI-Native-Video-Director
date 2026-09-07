@@ -23,7 +23,9 @@ const HELP = `AI Native Video Director — 数字人口播二次精剪
   --person x,y,w,h     数字人在画面中的位置框（0-1 比例或像素）
   --face x,y,w,h       脸部位置框（可选，默认从人物框推算）
   --canvas WxH         画幅，默认 1080x1920
-  --bgm URL            背景音乐（可选）
+  --bgm URL|none       强制指定背景音乐（默认由 AI 从内置曲库选曲；none 关闭）
+  --bgm-volume 0.12    背景音乐音量（线性，1 = 原音量；内部换算成 VectCut 的 dB）
+  --sfx-volume 0.55    音效总音量（线性）
   --replace-audio      用 mp3 替换视频原声
   --from-plan FILE     直接使用已审核的 plan.json，跳过 LLM
   --name NAME          草稿名
@@ -98,8 +100,14 @@ async function main() {
     llm = createLLM();
   }
 
-  const vectcut = dryRun ? null : createVectCutClient({ logger: message => logger(`vectcut ${message}`) });
+  // The client is also the default ASR provider, so create it whenever a key exists (dry runs included).
+  const vectcut = process.env.VECTCUT_API_KEY ? createVectCutClient({ logger: message => logger(`vectcut ${message}`) }) : null;
+  if (!dryRun && !vectcut) throw new Error('VECTCUT_API_KEY is required unless --dry-run');
   const imageProvider = dryRun ? null : createImageProvider({ client: vectcut });
+
+  const bgmArg = args.bgm ?? process.env.BGM_URL;
+  const bgmUrl = bgmArg && bgmArg !== 'none' ? bgmArg : undefined;
+  const numberOr = (value, fallback) => (value === undefined || value === '' ? fallback : Number(value));
 
   try {
     const result = await directSecondCut({
@@ -111,7 +119,10 @@ async function main() {
       person: parseBox(args.person),
       face: parseBox(args.face),
       canvas: parseCanvas(args.canvas),
-      bgmUrl: args.bgm,
+      bgmUrl,
+      disableBgm: bgmArg === 'none',
+      bgmVolume: numberOr(args['bgm-volume'] ?? process.env.BGM_VOLUME, undefined),
+      sfxVolume: numberOr(args['sfx-volume'] ?? process.env.SFX_VOLUME, undefined),
       replaceAudio: Boolean(args['replace-audio']),
       name: args.name,
       render: Boolean(args.render),

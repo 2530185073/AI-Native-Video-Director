@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { compilePlan, summarizeOps, TRACKS } from '../src/vectcut/compiler.js';
+import { bgmOps, compilePlan, summarizeOps, TRACKS } from '../src/vectcut/compiler.js';
+import { linearToDb } from '../src/director/audio.js';
 import { executeOps, summarizeScript } from '../src/vectcut/executor.js';
 import { fixture, samplePlan, mockVectCut, mockImageProvider } from './helpers/fixture.js';
 
@@ -60,16 +61,75 @@ test('compilePlan emits draft → video → keyframes → subtitles → beats �
   assert.ok(effect.params.end - effect.params.start <= 0.5 + 1e-9);
 });
 
-test('compilePlan wires replacement narration and BGM when requested', () => {
+test('compilePlan lays the AI-chosen BGM under the whole video at 12% (converted to dB) and trims SFX to the beat', () => {
   const { chunks, layout } = fixture();
-  const ops = compilePlan({ plan: samplePlan(chunks), chunks, layout, inputs: { ...inputs, replaceAudio: true, bgmUrl: 'https://cdn.test/bgm.mp3' } });
+  const ops = compilePlan({ plan: samplePlan(chunks), chunks, layout, inputs });
+  const audios = ops.filter(op => op.op === 'add_audio');
+  const bgm = audios.filter(op => op.params.track_name === TRACKS.bgm);
+  assert.equal(bgm.length, 1, 'a 98s track covers a 22s video in one piece');
+  assert.equal(bgm[0].params.audio_url, 'https://assets.mixkit.co/music/764/764.mp3');
+  assert.equal(bgm[0].params.volume, -18.42, '0.12 linear → -18.42 dB, not "0.12 dB"');
+  assert.equal(bgm[0].params.end, 21.8);
+  assert.equal(bgm[0].params.fade_in_duration, 0.8);
+  assert.ok(bgm[0].params.fade_out_duratioin > 0);
+  assert.equal(bgm[0].optional, true);
+
+  const sfx = audios.filter(op => TRACKS.sfx.includes(op.params.track_name));
+  assert.equal(sfx.length, 2);
+  const ding = sfx.find(op => op.params.audio_url.includes('notification'));
+  assert.equal(ding.params.end, 0.9, 'long ding trimmed to its punchy part');
+  assert.equal(ding.params.start, 0);
+  assert.ok(ding.params.target_start >= chunks[1].start);
+  assert.ok(ding.params.volume < 0 && ding.params.volume > -12);
+  const whoosh = sfx.find(op => op.params.audio_url.includes('whoosh'));
+  const broll = ops.find(op => op.op === 'broll_image');
+  assert.ok(Math.abs(whoosh.params.target_start - (broll.params.start - 0.08)) < 0.02, 'whoosh leads the image by a hair');
+  assert.ok(ops.indexOf(sfx[0]) < ops.findIndex(op => op.op === 'query_script'));
+});
+
+test('compilePlan honours explicit BGM overrides, loops short tracks and mutes the clip when narration is replaced', () => {
+  const { chunks, layout } = fixture();
+  const ops = compilePlan({ plan: samplePlan(chunks), chunks, layout, inputs: { ...inputs, replaceAudio: true, bgmUrl: 'https://cdn.test/bgm.mp3', bgmDuration: 8, bgmVolume: 0.2 } });
   const video = ops.find(op => op.op === 'add_video').params;
   assert.equal(video.volume, -100);
   const audios = ops.filter(op => op.op === 'add_audio');
-  assert.equal(audios.length, 2);
   assert.equal(audios[0].params.track_name, TRACKS.narration);
-  assert.equal(audios[1].params.volume, -18);
-  assert.equal(audios[1].optional, true);
+  const bgm = audios.filter(op => op.params.track_name === TRACKS.bgm);
+  assert.equal(bgm.length, 3, '8s track × 3 covers 21.8s');
+  assert.deepEqual(bgm.map(op => op.params.target_start), [0, 8, 16]);
+  assert.equal(bgm[2].params.end, 5.8);
+  assert.equal(bgm[0].params.fade_in_duration, 0.8);
+  assert.equal(bgm[1].params.fade_in_duration, undefined);
+  assert.equal(bgm[2].params.volume, -13.98);
+  assert.ok(bgm.every(op => op.params.audio_url === 'https://cdn.test/bgm.mp3'));
+
+  const unknown = compilePlan({ plan: samplePlan(chunks), chunks, layout, inputs: { ...inputs, bgmUrl: 'https://cdn.test/other.mp3' } });
+  assert.equal(unknown.filter(op => op.op === 'bgm_fill').length, 1, 'unknown duration is resolved at run time');
+
+  const silent = compilePlan({ plan: samplePlan(chunks), chunks, layout, inputs: { ...inputs, disableBgm: true } });
+  assert.equal(silent.filter(op => op.op === 'add_audio' && op.params.track_name === TRACKS.bgm).length, 0);
+});
+
+test('bgmOps and linearToDb cover the edge cases', () => {
+  assert.equal(linearToDb(1), 0);
+  assert.equal(linearToDb(0), -100);
+  assert.equal(linearToDb(0.5), -6.02);
+  assert.deepEqual(bgmOps({ url: 'x', trackDuration: 10, videoDuration: 0 }), []);
+  const exact = bgmOps({ url: 'x', trackDuration: 10, videoDuration: 20, volumeDb: -18 });
+  assert.equal(exact.length, 2);
+  assert.equal(exact[1].params.fade_out_duratioin, 1.2);
+});
+
+test('executeOps expands bgm_fill after asking VectCut for the track duration', async () => {
+  const { chunks, layout } = fixture();
+  const ops = compilePlan({ plan: samplePlan(chunks), chunks, layout, inputs: { ...inputs, bgmUrl: 'https://cdn.test/other.mp3' } });
+  const client = mockVectCut();
+  const result = await executeOps(ops, { client, imageProvider: mockImageProvider(), canvas: layout.canvas });
+  assert.equal(client.calls.filter(call => call.name === 'get_duration').length, 1);
+  const bgm = client.calls.filter(call => call.name === 'add_audio' && call.params.track_name === TRACKS.bgm);
+  assert.equal(bgm.length, 3, '9.5s track × 3 covers 21.8s');
+  assert.ok(bgm.every(call => call.params.draft_id === 'dfd_test'));
+  assert.deepEqual(result.warnings, []);
 });
 
 test('executeOps runs ops, resolves B-roll through the image provider and verifies the draft', async () => {

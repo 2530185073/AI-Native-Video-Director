@@ -26,6 +26,7 @@ export function samplePlan(chunks) {
   return {
     concept: '知识类口播：白字黑边+黄色高亮，克制推镜，商品段落用全屏图',
     tone: 'authoritative',
+    bgm: { track: 'lofi_clean', reason: '知识类内容，干净的 Lo-Fi 不抢戏' },
     subtitleStyle: {
       font: 'SourceHanSansCN_Bold',
       fontSize: 10,
@@ -45,9 +46,9 @@ export function samplePlan(chunks) {
       hide: false
     })),
     beats: [
-      { type: 'punch', chunkId: 2, text: '一万块', flowerId: 'W0BpSlRRRldCZlhQTFpAaERcUw==', fontSize: 20, intro: '弹入', loop: '轻微跳动', position: 'above_head', outro: null, reason: '价格是 hook' },
+      { type: 'punch', chunkId: 2, text: '一万块', flowerId: 'W0BpSlRRRldCZlhQTFpAaERcUw==', fontSize: 20, intro: '弹入', loop: '轻微跳动', position: 'above_head', outro: null, sfx: 'ding', reason: '价格是 hook' },
       { type: 'zoom', fromChunk: 3, toChunk: 4, scale: 1.12, reason: '结论句强调' },
-      { type: 'broll', fromChunk: 7, toChunk: 7, prompt: '一枚民国袁大头银元放在电子秤上，特写，柔和侧光，写实摄影', layout: 'fullscreen', imageIntro: '渐显', outro: '缩小', reason: '讲到具体重量，需要看到实物' },
+      { type: 'broll', fromChunk: 7, toChunk: 7, prompt: '一枚民国袁大头银元放在电子秤上，特写，柔和侧光，写实摄影', layout: 'fullscreen', imageIntro: '渐显', outro: '缩小', sfx: 'whoosh', reason: '讲到具体重量，需要看到实物' },
       { type: 'effect', fromChunk: 12, toChunk: 12, name: '色差故障', reason: '结尾反转' }
     ]
   };
@@ -88,6 +89,12 @@ export function mockVectCut({ failBatchText = false, failEffect = false } = {}) 
       return record('add_effect', params);
     },
     queryScript: async () => ({ duration: 21_820_000, fps: 30, canvas_config: { width: 1080, height: 1920 }, tracks: [{ name: 'video_main', type: 'video', segments: [{}] }, { name: 'subtitle', type: 'text', segments: [{}, {}] }], materials: { texts: [{}, {}], videos: [{ type: 'video' }], video_effects: [] } }),
+    getDuration: async url => { calls.push({ name: 'get_duration', params: { url } }); return { duration: 9.5, video_url: url }; },
+    submitAsrTask: async params => { calls.push({ name: 'submit_asr', params }); return { task_id: 'asr_1', status: 'pending' }; },
+    asrTaskStatus: async taskId => {
+      calls.push({ name: 'asr_status', params: { taskId } });
+      return { status: 'success', result: { mode: 'sta', content: '要想在浦东', segments: [{ start: 0, end: 734, text: '要想在浦东', words: [{ text: '要', start_time: 0, end_time: 100 }, { text: '想', start_time: 100, end_time: 240 }, { text: '在', start_time: 240, end_time: 400 }, { text: '浦', start_time: 400, end_time: 560 }, { text: '东', start_time: 560, end_time: 734 }] }] } };
+    },
     generateVideo: async () => ({ task_id: 'task_1' }),
     waitRender: async () => ({ status: 'SUCCESS', result: 'https://vectcut.test/out.mp4' })
   };

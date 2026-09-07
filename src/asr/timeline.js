@@ -1,5 +1,6 @@
 import { normalizeWords, wordsDuration } from '../timeline/words.js';
 import { alignWithExternalService } from './external.js';
+import { alignWithVectCut } from './vectcut.js';
 import { transcribeWithGroq } from './whisper.js';
 
 /**
@@ -8,7 +9,8 @@ import { transcribeWithGroq } from './whisper.js';
  *
  * 1. `words` passed inline (already-aligned data from the caller)
  * 2. the user's external alignment service (`ASR_PROVIDER=external`)
- * 3. Groq Whisper with the script as a prompt (`ASR_PROVIDER=groq`)
+ * 3. VectCut's ASR in script-alignment mode (`ASR_PROVIDER=vectcut`, needs the client)
+ * 4. Groq Whisper with the script as a prompt (`ASR_PROVIDER=groq`)
  */
 export async function getWordTimeline({
   audioUrl,
@@ -17,7 +19,9 @@ export async function getWordTimeline({
   words,
   provider = process.env.ASR_PROVIDER || 'auto',
   external = {},
-  groq = {}
+  vectcut = {},
+  groq = {},
+  logger = () => {}
 } = {}) {
   if (words) {
     const normalized = normalizeWords(words);
@@ -28,13 +32,19 @@ export async function getWordTimeline({
   let chosen = provider;
   if (chosen === 'auto') {
     if (process.env.ASR_ALIGN_URL) chosen = 'external';
+    else if (vectcut.client) chosen = 'vectcut';
     else if (process.env.GROQ_API_KEY) chosen = 'groq';
-    else throw new Error('No ASR provider configured: set ASR_ALIGN_URL (external) or GROQ_API_KEY (groq), or pass words');
+    else throw new Error('No ASR provider configured: set ASR_ALIGN_URL (external), VECTCUT_API_KEY (vectcut) or GROQ_API_KEY (groq), or pass words');
   }
 
   if (chosen === 'external') {
     const result = await alignWithExternalService({ audioUrl, script, language, ...external });
     return { provider: 'external', words: result.words, duration: wordsDuration(result.words), raw: result.raw };
+  }
+
+  if (chosen === 'vectcut') {
+    const result = await alignWithVectCut({ audioUrl, script, logger, ...vectcut });
+    return { provider: 'vectcut', words: result.words, duration: wordsDuration(result.words), raw: result.raw, transcript: result.transcript };
   }
 
   if (chosen === 'groq') {

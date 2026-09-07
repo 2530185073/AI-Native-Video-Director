@@ -1,4 +1,5 @@
 import { computeImageScale } from './scale.js';
+import { bgmOps } from './compiler.js';
 
 const CLIENT_METHODS = {
   add_video: 'addVideo',
@@ -30,6 +31,7 @@ export function summarizeScript(script) {
     texts: (script.materials?.texts || []).length,
     images: (script.materials?.videos || []).filter(item => item.type === 'photo' || item.type === 'image').length,
     videos: (script.materials?.videos || []).filter(item => item.type === 'video').length,
+    audios: (script.materials?.audios || []).length,
     effects: (script.materials?.video_effects || []).length
   };
 }
@@ -81,6 +83,21 @@ export async function executeOps(ops, { client, imageProvider, dryRun = false, l
         verification = summarizeScript(script);
         logger(`${label}: ${JSON.stringify(verification)}`);
         results.push({ op: op.op, ok: true, output: verification });
+        continue;
+      }
+
+      if (op.op === 'bgm_fill') {
+        const info = await client.getDuration(op.params.audio_url);
+        const expanded = bgmOps({
+          url: op.params.audio_url,
+          trackDuration: Number(info?.duration) || null,
+          videoDuration: op.videoDuration,
+          volumeDb: op.params.volume,
+          trackName: op.params.track_name
+        });
+        for (const piece of expanded) await runClientOp(piece);
+        logger(`${label}: ${expanded.length} segment(s), track ${Number(info?.duration || 0).toFixed(1)}s`);
+        results.push({ op: op.op, ok: true, segments: expanded.length });
         continue;
       }
 

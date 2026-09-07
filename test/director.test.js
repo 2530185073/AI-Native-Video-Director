@@ -26,6 +26,35 @@ test('a well-formed plan validates; catalog violations and bad references are ca
   const badColor = structuredClone(plan);
   badColor.subtitleStyle.highlightColor = 'yellow';
   assert.ok(validatePlan(badColor, { chunks }).some(error => error.includes('highlightColor')));
+
+  const badSfx = structuredClone(plan);
+  badSfx.beats[0].sfx = 'airhorn';
+  assert.ok(validatePlan(badSfx, { chunks }).some(error => error.includes('beats[0].sfx')));
+
+  const badBgm = structuredClone(plan);
+  badBgm.bgm.track = 'https://example.com/song.mp3';
+  assert.ok(validatePlan(badBgm, { chunks }).some(error => error.includes('bgm.track')));
+});
+
+test('lint keeps sound effects sparse: no two within a breath, capped per minute', () => {
+  const { chunks, layout, duration } = fixture();
+  const plan = samplePlan(chunks);
+  plan.beats = [
+    { type: 'punch', chunkId: 1, text: chunks[0].text.slice(0, 2), flowerId: null, color: '#FFE14D', fontSize: 18, intro: '弹入', loop: null, position: 'above_head', outro: null, sfx: 'pop', reason: 'a' },
+    { type: 'zoom', fromChunk: 1, toChunk: 2, scale: 1.1, sfx: 'whoosh', reason: 'same instant as the punch' },
+    { type: 'broll', fromChunk: 3, toChunk: 3, prompt: '一枚银元特写照片，写实', layout: 'card_top', imageIntro: '放大', outro: null, sfx: 'whoosh', reason: 'b' },
+    { type: 'punch', chunkId: 5, text: chunks[4].text.slice(0, 2), flowerId: null, color: '#FFE14D', fontSize: 18, intro: '弹入', loop: null, position: 'above_head', outro: null, sfx: 'pop', reason: 'c' },
+    { type: 'zoom', fromChunk: 7, toChunk: 7, scale: 1.1, sfx: 'whoosh', reason: 'd' },
+    { type: 'punch', chunkId: 9, text: chunks[8].text.slice(0, 2), flowerId: null, color: '#FFE14D', fontSize: 18, intro: '弹入', loop: null, position: 'above_head', outro: null, sfx: 'ding', reason: 'e' },
+    { type: 'effect', fromChunk: 11, toChunk: 11, name: '星光', sfx: 'click', reason: 'f' }
+  ];
+  const { plan: linted, warnings } = lintPlan(plan, { chunks, layout, duration });
+  const zoom = linted.beats.find(beat => beat.type === 'zoom' && beat.fromChunk === 1);
+  assert.equal(zoom.sfx, null, 'second sfx at the same instant is dropped');
+  assert.ok(warnings.some(warning => warning.includes('within 0.7s')));
+  const withSfx = linted.beats.filter(beat => beat.sfx);
+  assert.ok(withSfx.length <= 3, `expected ≤3 sfx for a 22s video, got ${withSfx.length}`);
+  assert.ok(warnings.some(warning => warning.startsWith('sfx:')));
 });
 
 test('schema simplification keeps structure and drops validation-only keywords', () => {

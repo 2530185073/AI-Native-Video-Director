@@ -24,6 +24,8 @@ export function normalizePlan(plan, chunks) {
     return copy;
   });
   if (plan.subtitleStyle && plan.subtitleStyle.bold === undefined) plan.subtitleStyle.bold = true;
+  if (typeof plan.bgm === 'string') plan.bgm = { track: plan.bgm, reason: '模型直接给出曲目' };
+  if (plan.bgm == null) plan.bgm = { track: 'none', reason: '模型未选择音乐' };
   return plan;
 }
 

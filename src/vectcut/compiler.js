@@ -1,10 +1,12 @@
 import { chunkRange, phraseTiming } from '../timeline/chunker.js';
 import { DEFAULT_LIMITS } from '../director/lint.js';
+import { AUDIO_LIBRARY, DEFAULT_BGM_VOLUME, DEFAULT_SFX_VOLUME, linearToDb } from '../director/audio.js';
 
 export const TRACKS = {
   video: 'video_main',
   narration: 'audio_narration',
   bgm: 'audio_bgm',
+  sfx: ['audio_sfx_1', 'audio_sfx_2'],
   subtitle: 'subtitle',
   punch: 'punch_text',
   broll: 'broll',
@@ -117,12 +119,23 @@ function compileSubtitles({ plan, chunks, layout, canvas }) {
   return [{ op: 'add_batch_text', params: batch, fallback, note: `${items.length} subtitle lines` }];
 }
 
+/** The moment a beat becomes visible; punches snap to the spoken word, ranges to their first chunk. */
+function beatStart(beat, chunks) {
+  if (beat.type === 'punch') {
+    const chunk = chunks.find(entry => entry.id === beat.chunkId);
+    if (!chunk) return null;
+    const timing = phraseTiming(chunk, beat.text);
+    return timing.exact ? timing.start : chunk.start;
+  }
+  const range = chunkRange(chunks, beat.fromChunk, beat.toChunk);
+  return range ? range.start : null;
+}
+
 function compilePunch(beat, { chunks, layout, canvas, plan }) {
   const chunk = chunks.find(entry => entry.id === beat.chunkId);
   if (!chunk) return null;
-  const timing = phraseTiming(chunk, beat.text);
   // Appear when the word is spoken, stay until the line ends (min 0.8s so the animation can play).
-  const start = timing.exact ? timing.start : chunk.start;
+  const start = beatStart(beat, chunks);
   const end = Math.max(chunk.end, start + 0.8);
   const placement = layout.punch(beat.position || 'above_head');
   const params = {
@@ -257,6 +270,102 @@ function compileEffect(beat, { chunks, canvas, limits }) {
 }
 
 /**
+ * Lay a music track end-to-end under the video. VectCut has no loop flag, so a track
+ * shorter than the video is repeated back-to-back; the first copy fades in and the
+ * last one is trimmed to the video end and fades out.
+ */
+export function bgmOps({ url, trackDuration, videoDuration, volumeDb, trackName = TRACKS.bgm, fadeIn = 0.8, fadeOut = 1.2 }) {
+  if (!url || !videoDuration) return [];
+  const ops = [];
+  const total = Math.max(0.5, videoDuration);
+  const pieceLength = trackDuration && trackDuration > 1 ? trackDuration : total;
+  let cursor = 0;
+  let index = 0;
+  while (cursor < total - 0.05) {
+    const length = Math.min(pieceLength, total - cursor);
+    const last = cursor + length >= total - 0.05;
+    const params = {
+      audio_url: url,
+      start: 0,
+      end: round2(length),
+      target_start: round2(cursor),
+      track_name: trackName,
+      volume: volumeDb
+    };
+    if (trackDuration) params.duration = trackDuration;
+    if (index === 0) params.fade_in_duration = fadeIn;
+    if (last) params.fade_out_duratioin = Math.min(fadeOut, length / 2);
+    ops.push({ op: 'add_audio', params, optional: true, note: index === 0 ? 'background music' : `background music loop ${index + 1}` });
+    cursor += length;
+    index += 1;
+    if (index > 60) break;
+  }
+  return ops;
+}
+
+function compileBgm({ plan, inputs, duration, library }) {
+  if (inputs.disableBgm) return [];
+  const volumeDb = linearToDb(inputs.bgmVolume ?? DEFAULT_BGM_VOLUME);
+  if (inputs.bgmUrl) {
+    const known = library.bgm.find(item => item.url === inputs.bgmUrl);
+    const trackDuration = inputs.bgmDuration || known?.duration;
+    if (!trackDuration) {
+      return [{ op: 'bgm_fill', params: { audio_url: inputs.bgmUrl, volume: volumeDb, track_name: TRACKS.bgm }, videoDuration: duration, optional: true, note: 'background music (custom url, duration resolved at run time)' }];
+    }
+    return bgmOps({ url: inputs.bgmUrl, trackDuration, videoDuration: duration, volumeDb });
+  }
+  const track = plan.bgm?.track;
+  if (!track || track === 'none') return [];
+  const item = library.findBgm(track);
+  if (!item) return [];
+  const ops = bgmOps({ url: item.url, trackDuration: item.duration, videoDuration: duration, volumeDb });
+  if (ops[0]) ops[0].note = `background music ${track} (${plan.bgm.reason})`;
+  return ops;
+}
+
+/**
+ * One short `add_audio` per beat that asked for a sound effect. Effects are trimmed
+ * to their punchy part and spread over two tracks so that near-simultaneous hits
+ * never collide on the same track.
+ */
+function compileSfx({ plan, chunks, inputs, library }) {
+  const master = inputs.sfxVolume ?? DEFAULT_SFX_VOLUME;
+  const hits = [];
+  for (const beat of plan.beats) {
+    if (!beat.sfx) continue;
+    const item = library.findSfx(beat.sfx);
+    const start = beatStart(beat, chunks);
+    if (!item || start == null) continue;
+    hits.push({ beat, item, start: Math.max(0, start - (beat.type === 'broll' ? 0.08 : 0)) });
+  }
+  hits.sort((left, right) => left.start - right.start);
+
+  const trackEnds = TRACKS.sfx.map(() => -Infinity);
+  const ops = [];
+  for (const { beat, item, start } of hits) {
+    const length = Math.min(item.trim || item.duration, item.duration);
+    let trackIndex = trackEnds.findIndex(end => end <= start);
+    if (trackIndex < 0) trackIndex = trackEnds.indexOf(Math.min(...trackEnds));
+    trackEnds[trackIndex] = start + length;
+    ops.push({
+      op: 'add_audio',
+      params: {
+        audio_url: item.url,
+        start: 0,
+        end: round2(length),
+        duration: item.duration,
+        target_start: round2(start),
+        track_name: TRACKS.sfx[trackIndex],
+        volume: linearToDb(master * (item.gain ?? 1))
+      },
+      optional: true,
+      note: `sfx ${item.id} on ${beat.type}${beat.text ? ` "${beat.text}"` : ''}`
+    });
+  }
+  return ops;
+}
+
+/**
  * Compile an approved editing plan into an ordered list of VectCut operations.
  *
  * Pure function: no network, deterministic, easy to snapshot in tests and to show
@@ -269,7 +378,8 @@ export function compilePlan({
   inputs,
   canvas = layout.canvas,
   limits = DEFAULT_LIMITS,
-  imageStyle
+  imageStyle,
+  audioLibrary = AUDIO_LIBRARY
 }) {
   if (!inputs?.videoUrl) throw new Error('inputs.videoUrl is required');
   const ops = [];
@@ -300,23 +410,7 @@ export function compilePlan({
       note: 'narration audio replaces the clip audio'
     });
   }
-  if (inputs.bgmUrl) {
-    ops.push({
-      op: 'add_audio',
-      params: {
-        audio_url: inputs.bgmUrl,
-        start: 0,
-        target_start: 0,
-        track_name: TRACKS.bgm,
-        volume: inputs.bgmVolumeDb ?? -18,
-        fade_in_duration: 0.8,
-        fade_out_duratioin: 1.2,
-        ...(duration ? { end: round2(duration) } : {})
-      },
-      optional: true,
-      note: 'background music'
-    });
-  }
+  ops.push(...compileBgm({ plan, inputs, duration, library: audioLibrary }));
 
   ops.push(...compileZooms(plan.beats, { chunks, layout, limits }));
   ops.push(...compileSubtitles({ plan, chunks, layout, canvas }));
@@ -329,6 +423,8 @@ export function compilePlan({
     else if (beat.type === 'effect') op = compileEffect(beat, { chunks, canvas, limits });
     if (op) ops.push(op);
   }
+
+  ops.push(...compileSfx({ plan, chunks, inputs, library: audioLibrary }));
 
   ops.push({ op: 'query_script', params: {}, note: 'verify draft before hand-off' });
   return ops;

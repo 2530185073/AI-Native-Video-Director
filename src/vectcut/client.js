@@ -183,6 +183,16 @@ export class VectCutClient {
     return data.output;
   }
 
+  // ---- AI subtitle recognition / script alignment --------------------------
+
+  async submitAsrTask({ url, effect_mode = 'nlp', content } = {}) {
+    return this.post('/llm/asr/asr_llm/submit_task/submit_asr_llm_task', { url, effect_mode, ...(content ? { content } : {}) });
+  }
+
+  async asrTaskStatus(taskId) {
+    return this.get('/llm/asr/asr_llm/submit_task/task_status', { task_id: taskId });
+  }
+
   // ---- AI image generation (aggregator) ------------------------------------
 
   async submitImageTask(params) {

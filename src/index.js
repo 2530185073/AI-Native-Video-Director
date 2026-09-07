@@ -4,6 +4,8 @@ export { buildChunks, phraseTiming, chunkRange } from './timeline/chunker.js';
 export { normalizeWords } from './timeline/words.js';
 export { createLayout } from './layout/layout.js';
 export { CATALOG, describeCatalog } from './director/catalog.js';
+export { AUDIO_LIBRARY, SFX, BGM, createAudioLibrary, linearToDb } from './director/audio.js';
+export { alignWithVectCut } from './asr/vectcut.js';
 export { buildPlanSchema, validatePlan } from './director/schema.js';
 export { lintPlan } from './director/lint.js';
 export { createEditingPlan, normalizePlan } from './director/planner.js';

@@ -7,7 +7,9 @@ export const DEFAULT_LIMITS = {
   maxZoomSeconds: 8,
   minBrollSeconds: 1.2,
   maxBrollSeconds: 6,
-  maxEffectSeconds: 4
+  maxEffectSeconds: 4,
+  sfxPerMinute: 8,
+  minSfxGapSeconds: 0.7
 };
 
 function beatRange(beat, chunks) {
@@ -121,6 +123,28 @@ export function lintPlan(plan, { chunks, layout, duration, limits = DEFAULT_LIMI
   }
 
   beats.sort((left, right) => left._range.start - right._range.start);
+
+  // 7. Sound effects are punctuation: never two within the same breath, never a wall of them.
+  let lastSfxAt = -Infinity;
+  for (const beat of beats) {
+    if (!beat.sfx) continue;
+    if (beat._range.start - lastSfxAt < limits.minSfxGapSeconds) {
+      warnings.push(`sfx "${beat.sfx}" on ${beat.type} at ${beat._range.start.toFixed(2)}s is within ${limits.minSfxGapSeconds}s of the previous one, dropped`);
+      beat.sfx = null;
+      continue;
+    }
+    lastSfxAt = beat._range.start;
+  }
+  const withSfx = beats.filter(beat => beat.sfx);
+  const allowedSfx = Math.max(1, Math.round((limits.sfxPerMinute * Math.max(totalDuration, 15)) / 60));
+  if (withSfx.length > allowedSfx) {
+    const step = withSfx.length / allowedSfx;
+    const keep = new Set();
+    for (let index = 0; index < allowedSfx; index += 1) keep.add(withSfx[Math.floor(index * step)]);
+    for (const beat of withSfx) if (!keep.has(beat)) beat.sfx = null;
+    warnings.push(`sfx: ${withSfx.length} exceed the ${allowedSfx} allowed for a ${Math.round(totalDuration)}s video; thinned`);
+  }
+
   result.beats = beats.map(({ _range, ...beat }) => beat);
   return { plan: result, warnings };
 }

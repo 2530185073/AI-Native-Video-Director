@@ -27,7 +27,10 @@ export async function directSecondCut(inputs, deps = {}) {
     face,
     brief,
     bgmUrl,
-    bgmVolumeDb,
+    bgmDuration,
+    disableBgm = false,
+    bgmVolume,
+    sfxVolume,
     replaceAudio = false,
     name,
     chunking = {},
@@ -41,7 +44,15 @@ export async function directSecondCut(inputs, deps = {}) {
   if (!script) throw new Error('script is required');
 
   // 1. Word-level timeline for the narration.
-  const timeline = await getWordTimeline({ audioUrl: audioUrl || videoUrl, script, language, words, ...(deps.asr || {}) });
+  const timeline = await getWordTimeline({
+    audioUrl: audioUrl || videoUrl,
+    script,
+    language,
+    words,
+    logger,
+    vectcut: { client: vectcut },
+    ...(deps.asr || {})
+  });
   logger(`timeline: ${timeline.words.length} words from ${timeline.provider}, ${timeline.duration.toFixed(1)}s`);
 
   // 2. Screen-ready subtitle chunks with per-character timing.
@@ -72,7 +83,8 @@ export async function directSecondCut(inputs, deps = {}) {
     plan: directed.plan,
     chunks: chunked.chunks,
     layout,
-    inputs: { videoUrl, audioUrl, replaceAudio, bgmUrl, bgmVolumeDb, name, duration: timeline.duration }
+    inputs: { videoUrl, audioUrl, replaceAudio, bgmUrl, bgmDuration, disableBgm, bgmVolume, sfxVolume, name, duration: timeline.duration },
+    audioLibrary: deps.audioLibrary
   });
   logger(`compiled: ${summarizeOps(ops)}`);
 

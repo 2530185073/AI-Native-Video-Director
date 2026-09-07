@@ -3,6 +3,7 @@ export { planDebreath, remapCues, remapSrt } from './debreath.js';
 export { alignWithExternalService } from './external.js';
 export { processAsrSubtitles } from './pipeline.js';
 export { getWordTimeline } from './timeline.js';
+export { alignWithVectCut, extractVectCutWords } from './vectcut.js';
 export {
   cuesToSrt,
   mergePlainTextIntoCues,

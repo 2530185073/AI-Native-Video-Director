@@ -4,6 +4,8 @@ import { OpenAICompatibleLLM } from '../src/providers/llm/openai-compatible.js';
 import { VectCutClient, VectCutError } from '../src/vectcut/client.js';
 import { VectCutImageProvider, OpenAICompatibleImageProvider } from '../src/providers/image/index.js';
 import { alignWithExternalService } from '../src/asr/external.js';
+import { alignWithVectCut } from '../src/asr/vectcut.js';
+import { getWordTimeline } from '../src/asr/timeline.js';
 
 const jsonResponse = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
@@ -87,4 +89,39 @@ test('external ASR adapter posts configurable fields and normalises the response
   assert.equal(captured.body.script, '你好');
   assert.equal(captured.auth, 'Bearer ak');
   assert.deepEqual(result.words, [{ text: '你', start: 0, end: 0.2 }, { text: '好', start: 0.2, end: 0.45 }]);
+});
+
+test('VectCut ASR aligns the script (sta mode), polls until success and flattens per-character words', async () => {
+  const requests = [];
+  let polls = 0;
+  const fetchImpl = async (url, init) => {
+    const target = new URL(url);
+    requests.push({ path: target.pathname, query: target.search, body: init.body ? JSON.parse(init.body) : null });
+    if (target.pathname.endsWith('submit_asr_llm_task')) return jsonResponse(200, { success: true, task_id: 't-1', status: 'pending' });
+    polls += 1;
+    if (polls === 1) return jsonResponse(200, { success: true, status: 'processing', progress: 40 });
+    return jsonResponse(200, {
+      success: true,
+      status: 'success',
+      result: {
+        mode: 'sta',
+        content: '要想在浦东',
+        segments: [
+          { start: 0, end: 734, text: '要想在浦东', words: [{ text: '要', start_time: 0, end_time: 100 }, { text: '想', start_time: 100, end_time: 240 }, { text: '在', start_time: 240, end_time: 400 }, { text: '浦', start_time: 400, end_time: 560 }, { text: '东', start_time: 560, end_time: 734 }] }
+        ]
+      }
+    });
+  };
+  const client = new VectCutClient({ apiKey: 'k', fetchImpl });
+  const result = await alignWithVectCut({ client, audioUrl: 'https://a.mp3', script: '要想在浦东', intervalMs: 1 });
+  assert.equal(requests[0].body.content, '要想在浦东');
+  assert.equal(requests[0].body.effect_mode, 'nlp');
+  assert.ok(requests[1].query.includes('task_id=t-1'));
+  assert.equal(result.mode, 'sta');
+  assert.equal(result.words.length, 5);
+  assert.deepEqual(result.words[3], { text: '浦', start: 0.4, end: 0.56 });
+
+  const timeline = await getWordTimeline({ audioUrl: 'https://a.mp3', script: '要想在浦东', provider: 'auto', vectcut: { client, intervalMs: 1 } });
+  assert.equal(timeline.provider, 'vectcut');
+  assert.equal(timeline.duration, 0.734);
 });
