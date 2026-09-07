@@ -69,6 +69,52 @@ export function reviewTimestamps({ plan, chunks, duration, maxFrames = 12 }) {
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+function capture(command, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', chunk => { stdout += chunk; });
+    child.stderr.on('data', chunk => { stderr += chunk; });
+    child.on('error', reject);
+    child.on('close', code => (code === 0 ? resolve(stdout) : reject(new Error(`${command} exited ${code}: ${stderr.slice(-400)}`))));
+  });
+}
+
+/**
+ * The cheapest gate first: before spending a vision call, make sure the file VectCut
+ * handed back is the video we asked for — right canvas, right length, has sound.
+ * Returns `null` when ffprobe is not installed so callers can carry on.
+ */
+export async function probeRender({ videoPath, canvas = { width: 1080, height: 1920 }, duration, tolerance = 0.75, ffprobe = process.env.FFPROBE_PATH || 'ffprobe' }) {
+  let raw;
+  try {
+    raw = await capture(ffprobe, ['-v', 'error', '-print_format', 'json', '-show_streams', '-show_format', videoPath]);
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    return { ok: false, problems: [`ffprobe failed: ${error.message}`] };
+  }
+  let info;
+  try { info = JSON.parse(raw); } catch { return { ok: false, problems: ['ffprobe returned unreadable output'] }; }
+  const video = (info.streams || []).find(stream => stream.codec_type === 'video');
+  const audio = (info.streams || []).find(stream => stream.codec_type === 'audio');
+  const length = Number(info.format?.duration || video?.duration || 0);
+  const problems = [];
+  if (!video) problems.push('no video stream');
+  else if (video.width !== canvas.width || video.height !== canvas.height) problems.push(`canvas is ${video.width}x${video.height}, expected ${canvas.width}x${canvas.height}`);
+  if (!audio) problems.push('no audio stream (the narration is missing)');
+  if (duration && Math.abs(length - duration) > tolerance) problems.push(`duration ${length.toFixed(2)}s differs from the ${duration.toFixed(2)}s narration by more than ${tolerance}s`);
+  return {
+    ok: problems.length === 0,
+    problems,
+    width: video?.width,
+    height: video?.height,
+    duration: Math.round(length * 100) / 100,
+    videoCodec: video?.codec_name,
+    audioCodec: audio?.codec_name
+  };
+}
+
 /**
  * Fresh render URLs on the OSS CDN occasionally refuse the first connection from
  * Node's fetch; retry with backoff, then fall back to curl when it is on PATH.
@@ -138,15 +184,40 @@ export const REVIEW_RUBRIC = `你是短视频审片人。下面是一条数字�
 
 - hook：第 1 格是否一眼看出主题（有大字/重点词，人物清晰，无全屏图盖脸）
 - readability：字幕/花字是否清晰可读、没有换行溢出、没有被截断、对比度足够（注意：人物衣服上的印花字母不是字幕，不要当作乱码）
-- faceClearance：花字、图片、卡片是否都避开了人脸（不压眉毛、不盖嘴）。落在胸前（下巴与字幕之间）或头顶留白都是允许的设计位置，不算遮挡
+- faceClearance：花字、图片、卡片是否都避开了人脸（不压眉毛、不盖嘴）。落在胸前（下巴与字幕之间）或头顶留白都是允许的设计位置，不算遮挡。pip_face 布局（全屏配图 + 人物缩成左上角圆形小窗）是有意的设计：只要小窗里能看到完整的脸就不算遮挡，而是加分
 - safeZone：文字和图片是否离画面顶部 6%、底部 16%、右侧 11% 的平台 UI 遮挡区足够远
 - rhythm：抽帧之间是否有足够变化但不杂乱（不是每格都有花字，也不是每格都一样）
-- styleConsistency：花字颜色/字体/图片风格是否统一、是否贴合内容调性（全片最多 2 种花字样式）
+- styleConsistency：花字颜色/字体/图片风格是否统一、是否贴合内容调性（全片最多 2 种花字样式：白色 + 一种强调色）
 
 方案摘要里的位置是系统根据人脸框实际落位后的位置（例如头顶没空间时 above_head 会落到 chest），请按画面实际效果评判，不要因为位置和字面方案不同而扣分。
 
-再列出具体问题（引用格子的秒数），每条给一个可执行的修法（例如“3.2s 的花字下移到头顶留白”“12.0s 的图片改成 lower_card”“字幕开启半透明底条”）。输出 JSON：
-{"scores":{"hook":1-5,"readability":1-5,"faceClearance":1-5,"safeZone":1-5,"rhythm":1-5,"styleConsistency":1-5},"overall":1-5,"verdict":"ship"|"fix","issues":[{"at":"秒数","problem":"…","fix":"…"}],"summary":"一句话总评"}`;
+另外做“承诺核对”：拼图里带 beat 标签的格子（punch / broll / zoom / effect），逐格判断标签描述的元素是否真的出现在画面里（花字文字是否可见、图片是否出现、小窗里是否有人脸），列入 beatChecks。
+
+再列出具体问题（引用格子的秒数），每条给一个可执行的修法（例如“3.2s 的花字下移到头顶留白”“12.0s 的图片改成 pip_face”“字幕开启半透明底条”“28.4s 的花字改成白色”）。输出 JSON：
+{"scores":{"hook":1-5,"readability":1-5,"faceClearance":1-5,"safeZone":1-5,"rhythm":1-5,"styleConsistency":1-5},"overall":1-5,"verdict":"ship"|"fix","beatChecks":[{"at":"秒数","expected":"标签","visible":true|false,"note":"…"}],"issues":[{"at":"秒数","problem":"…","fix":"…"}],"summary":"一句话总评"}`;
+
+/**
+ * Hard caps (VideoArgus-style): a cut that fails readability or covers the face is not
+ * shippable no matter how the other scores average out, and a promised element that
+ * never showed up on screen is a defect, not a style note.
+ */
+export const REVIEW_HARD_CAPS = { readability: 2, faceClearance: 2 };
+
+export function applyReviewCaps(review) {
+  if (!review || typeof review !== 'object') return review;
+  const result = { ...review, capped: [] };
+  for (const [dimension, floor] of Object.entries(REVIEW_HARD_CAPS)) {
+    const score = Number(result.scores?.[dimension]);
+    if (Number.isFinite(score) && score <= floor) result.capped.push(`${dimension} ${score} ≤ ${floor}`);
+  }
+  const missing = (Array.isArray(result.beatChecks) ? result.beatChecks : []).filter(check => check && check.visible === false);
+  if (missing.length) result.capped.push(`${missing.length} promised beat(s) not visible: ${missing.map(check => `${check.at} ${check.expected}`).join(', ')}`);
+  if (result.capped.length) {
+    result.verdict = 'fix';
+    result.overall = Math.min(Number(result.overall) || 5, 3);
+  }
+  return result;
+}
 
 function summarizePlanForReview(plan, frames, layout) {
   const pct = value => `${Math.round(value * 100)}%`;
@@ -196,25 +267,44 @@ export async function reviewContactSheet({ llm, sheetPath, frames, plan, brief, 
     generationConfig: { responseMimeType: 'application/json' },
     temperature: 0.2
   });
-  const review = parseJson(result.content);
+  const review = applyReviewCaps(parseJson(result.content));
   return { ...review, model: llm.model, usage: result.usage };
 }
 
 /**
  * Full QC pass for a rendered video: download → contact sheet → (optional) vision review.
  */
-export async function reviewRender({ videoUrl, plan, chunks, duration, outDir, llm, brief, layout, logger = () => {}, ffmpeg, fetchImpl }) {
+export async function reviewRender({ videoUrl, plan, chunks, duration, outDir, llm, brief, layout, canvas, logger = () => {}, ffmpeg, ffprobe, fetchImpl }) {
   mkdirSync(outDir, { recursive: true });
   const videoPath = join(outDir, 'render.mp4');
   if (!existsSync(videoPath)) {
     logger('review: downloading render');
     await downloadFile(videoUrl, videoPath, { fetchImpl });
   }
+  const probe = await probeRender({ videoPath, canvas: canvas || layout?.canvas, duration, ffprobe });
+  if (probe && !probe.ok) {
+    // A broken file is not worth a vision call; report it as a failed review straight away.
+    logger(`review: render failed the technical gate — ${probe.problems.join('; ')}`);
+    return {
+      videoPath,
+      frames: [],
+      sheet: null,
+      probe,
+      review: {
+        verdict: 'fix',
+        overall: 1,
+        scores: {},
+        issues: probe.problems.map(problem => ({ at: '0.0s', severity: 'high', problem, fix: '检查渲染参数 / 重新渲染' })),
+        summary: `技术门禁未通过：${probe.problems.join('；')}`
+      }
+    };
+  }
+  if (probe) logger(`review: technical gate ok (${probe.width}x${probe.height}, ${probe.duration}s, ${probe.videoCodec}/${probe.audioCodec})`);
   const times = reviewTimestamps({ plan, chunks, duration });
   const sheet = await buildContactSheet({ videoPath, times, outDir, ffmpeg });
   if (!sheet) {
     logger('review: ffmpeg not found, skipped');
-    return { videoPath, frames: [], sheet: null, review: null };
+    return { videoPath, frames: [], sheet: null, probe, review: null };
   }
   logger(`review: contact sheet with ${sheet.frames.length} frames → ${sheet.sheet}`);
   let review = null;
@@ -225,5 +315,5 @@ export async function reviewRender({ videoUrl, plan, chunks, duration, outDir, l
   } catch (error) {
     logger(`review: vision review failed (${error.message}); sheet kept`);
   }
-  return { videoPath, frames: sheet.frames, sheet: sheet.sheet, review };
+  return { videoPath, frames: sheet.frames, sheet: sheet.sheet, probe, review };
 }

@@ -8,8 +8,9 @@ export { AUDIO_LIBRARY, SFX, BGM, createAudioLibrary, linearToDb } from './direc
 export { alignWithVectCut } from './asr/vectcut.js';
 export { buildPlanSchema, validatePlan } from './director/schema.js';
 export { lintPlan, DEFAULT_LIMITS, STATIC_FILL_REASON } from './director/lint.js';
-export { loadDirectorSkill, rhythmBudget, DIRECTOR_SYSTEM_PROMPT, SKILL_PATH } from './director/prompt.js';
-export { reviewRender, reviewTimestamps, buildContactSheet, reviewContactSheet, REVIEW_RUBRIC } from './review.js';
+export { loadDirectorSkill, rhythmBudget, scriptDensity, DIRECTOR_SYSTEM_PROMPT, SKILL_PATH } from './director/prompt.js';
+export { reviewRender, reviewTimestamps, buildContactSheet, reviewContactSheet, probeRender, applyReviewCaps, REVIEW_RUBRIC, REVIEW_HARD_CAPS } from './review.js';
+export { inspectSource, grabFrame, normalizeInspection, INSPECT_PROMPT } from './inspect.js';
 export { createEditingPlan, normalizePlan } from './director/planner.js';
 export { compilePlan, summarizeOps } from './vectcut/compiler.js';
 export { executeOps, summarizeScript } from './vectcut/executor.js';

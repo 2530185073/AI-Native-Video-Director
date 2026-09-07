@@ -114,11 +114,61 @@ export function createLayout({ canvas = { width: 1080, height: 1920 }, person, f
 
   const aspectRatio = { '16:9': 16 / 9, '1:1': 1, '9:16': 9 / 16, '4:3': 4 / 3, '3:4': 3 / 4 };
 
+  /**
+   * How much of the frame the face takes. Knowledge-channel editors aim for a face that
+   * is ~35-45% of the frame height at most; above that ("tight") there is no room for
+   * cards next to or above the head, and a full-frame picture with the speaker kept in
+   * a small window is the layout that still shows both the object and the person.
+   */
+  const framing = faceBox.h > 0.30 || faceBox.y < 0.12 ? 'tight' : faceBox.h > 0.20 ? 'medium' : 'wide';
+
+  /**
+   * Diameter of the speaker window in `pip_face`, as a fraction of the canvas width.
+   * Corner bubbles read at feed size between ~20% and ~30% of the frame width: below 20%
+   * expressions vanish, above 30% the window starts competing with the picture. 300 px on
+   * a 1080 canvas is the value talking-head recut pipelines have converged on.
+   */
+  const PIP_DIAMETER = 0.30;
+
+  /**
+   * A second copy of the talking-head clip, masked to a circle around the face, scaled
+   * down and parked in the top-left corner inside the safe zone. VectCut masks live in
+   * material space (centre-origin, +y down, size relative to material height) and move
+   * with the clip, so the window is positioned by placing the *mask centre* where the
+   * circle should land on the canvas.
+   */
+  function facePip() {
+    const diameterPx = PIP_DIAMETER * size.width;
+    const cx = SAFE_ZONE.left + PIP_DIAMETER / 2 + 0.02;
+    const cy = SAFE_ZONE.top + (diameterPx / size.height) / 2 + 0.02;
+    const maskSize = clamp(faceBox.h * 1.6, 0.22, 0.9);
+    const scale = diameterPx / (maskSize * size.height);
+    const maskCenterY = faceCenterY + 0.01;
+    const transformX = (cx - 0.5) * size.width - (faceCenterX - 0.5) * size.width * scale;
+    const transformY = (0.5 - cy) * size.height - (0.5 - maskCenterY) * size.height * scale;
+    return {
+      diameter: PIP_DIAMETER,
+      center: { x: cx, y: cy },
+      scale: Math.round(scale * 1000) / 1000,
+      mask_type: '圆形',
+      mask_center_x: Math.round((faceCenterX - 0.5) * 1000) / 1000,
+      mask_center_y: Math.round((maskCenterY - 0.5) * 1000) / 1000,
+      mask_size: Math.round(maskSize * 1000) / 1000,
+      transform_x_px: Math.round(transformX * PX_UNIT),
+      transform_y_px: Math.round(transformY * PX_UNIT)
+    };
+  }
+
   function broll(layoutName = 'card_top') {
     let spec;
     switch (layoutName) {
       case 'fullscreen':
         spec = { x: 0.5, y: 0.5, width: 1, aspect: '9:16', coversPerson: true };
+        break;
+      case 'pip_face':
+        // Full-frame picture, speaker kept alive in a round window: the "avatar PiP" that
+        // creator-grade shorts use instead of a postage-stamp card when the face fills the frame.
+        spec = { x: 0.5, y: 0.5, width: 1, aspect: '9:16', coversPerson: true, pip: facePip() };
         break;
       case 'pip_side': {
         // Room between the face and the platform UI rail on the free side (the right-hand
@@ -183,6 +233,7 @@ export function createLayout({ canvas = { width: 1080, height: 1920 }, person, f
     person: personBox,
     face: faceBox,
     freeSide,
+    framing,
     subtitle,
     punch,
     broll,

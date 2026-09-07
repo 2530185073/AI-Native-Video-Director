@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildContactSheet, reviewContactSheet, reviewRender, reviewTimestamps } from '../src/review.js';
+import { buildContactSheet, probeRender, reviewContactSheet, reviewRender, reviewTimestamps } from '../src/review.js';
 import { STATIC_FILL_REASON } from '../src/director/lint.js';
 import { fixture, samplePlan } from './helpers/fixture.js';
 
@@ -60,7 +60,7 @@ test('reviewContactSheet grades the sheet through a vision-capable LLM and toler
 test('buildContactSheet tiles frames from a real mp4 (skipped without ffmpeg)', { skip: !hasFfmpeg() }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'review-'));
   const video = join(dir, 'render.mp4');
-  execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=size=270x480:rate=10', '-t', '6', '-pix_fmt', 'yuv420p', video], { stdio: 'ignore' });
+  execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=size=270x480:rate=10', '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=44100', '-t', '6', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', video], { stdio: 'ignore' });
   const times = [{ time: 0.6, label: 'hook' }, { time: 2.5, label: 'middle' }, { time: 5, label: 'ending' }];
   const result = await buildContactSheet({ videoPath: video, times, outDir: dir, frameWidth: 90, columns: 2 });
   assert.ok(result, 'ffmpeg present → sheet produced');
@@ -68,12 +68,29 @@ test('buildContactSheet tiles frames from a real mp4 (skipped without ffmpeg)', 
   assert.ok(existsSync(result.sheet) && statSync(result.sheet).size > 0);
   for (const frame of result.frames) assert.ok(existsSync(frame.file));
 
+  // The technical gate: right canvas + right length + sound → ok; anything else is a concrete problem.
+  const good = await probeRender({ videoPath: video, canvas: { width: 270, height: 480 }, duration: 6 });
+  assert.ok(good.ok, `probe should pass: ${good.problems.join('; ')}`);
+  assert.equal(good.width, 270);
+  assert.ok(good.audioCodec, 'audio stream detected');
+  const bad = await probeRender({ videoPath: video, canvas: { width: 1080, height: 1920 }, duration: 20 });
+  assert.equal(bad.ok, false);
+  assert.ok(bad.problems.some(problem => problem.includes('canvas is 270x480')));
+  assert.ok(bad.problems.some(problem => problem.includes('duration')));
+
   // Whole pass with a local file URL stand-in: download is skipped when render.mp4 already exists.
   const { chunks, duration } = fixture();
   const plan = samplePlan(chunks);
   const logs = [];
-  const qc = await reviewRender({ videoUrl: 'https://unused.test/x.mp4', plan, chunks, duration: Math.min(duration, 6), outDir: dir, llm: null, logger: message => logs.push(message) });
+  const qc = await reviewRender({ videoUrl: 'https://unused.test/x.mp4', plan, chunks, duration: Math.min(duration, 6), canvas: { width: 270, height: 480 }, outDir: dir, llm: null, logger: message => logs.push(message) });
+  assert.ok(qc.probe?.ok, 'gate passed');
   assert.ok(qc.sheet && qc.frames.length >= 3);
   assert.equal(qc.review, null);
   assert.ok(logs.some(line => line.includes('sheet only')));
+
+  // A render on the wrong canvas never reaches the (expensive) vision step.
+  const gated = await reviewRender({ videoUrl: 'https://unused.test/x.mp4', plan, chunks, duration: Math.min(duration, 6), canvas: { width: 1080, height: 1920 }, outDir: dir, llm: null, logger: () => {} });
+  assert.equal(gated.review.verdict, 'fix');
+  assert.equal(gated.sheet, null);
+  assert.ok(gated.review.issues[0].problem.includes('canvas'));
 });

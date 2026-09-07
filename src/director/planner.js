@@ -107,6 +107,7 @@ export async function createEditingPlan({
   brief,
   duration,
   layout,
+  source,
   catalog = CATALOG,
   maxAttempts = 3,
   temperature,
@@ -115,7 +116,7 @@ export async function createEditingPlan({
   if (!llm) throw new Error('an LLM provider is required');
   if (!chunks?.length) throw new Error('chunks are required');
   const schema = buildPlanSchema(catalog);
-  const userPrompt = buildDirectorUserPrompt({ script, chunks, brief, duration, layout, catalog, schema });
+  const userPrompt = buildDirectorUserPrompt({ script, chunks, brief, duration, layout, source, catalog, schema });
 
   let user = userPrompt;
   let lastErrors = [];
@@ -135,7 +136,7 @@ export async function createEditingPlan({
     const plan = normalizePlan(structuredClone(data), chunks, catalog);
     const errors = validatePlan(plan, { chunks, catalog });
     if (!errors.length) {
-      const linted = lintPlan(plan, { chunks, layout, duration });
+      const linted = lintPlan(plan, { chunks, layout, duration, source });
       logger(`plan accepted on attempt ${attempt} with ${linted.warnings.length} lint fix(es)`);
       return { plan: linted.plan, rawPlan: plan, lintWarnings: linted.warnings, attempts };
     }

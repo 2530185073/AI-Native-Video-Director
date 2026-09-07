@@ -23,6 +23,17 @@ export const DEFAULT_LIMITS = {
   maxHighlightRatio: 0.6,
   // Distinct punch looks (flower preset or colour) per video; three or more reads as random.
   maxPunchStyles: 2,
+  // One "apex" word per video: only a single punch may use the largest font size, the rest sit
+  // at least this many points below it. Two equally loud words make neither of them the peak.
+  apexPunch: true,
+  apexStep: 3,
+  // The last line (conclusion / CTA) is spoken to camera: no picture may cover the face there.
+  protectClosing: true,
+  // Plain-colour punch text may only use white or the subtitle highlight colour (one neutral + one accent).
+  punchPalette: true,
+  // A picture card narrower than this share of the canvas is a thumbnail nobody can read;
+  // in tight framing it is promoted to a full-frame picture with the speaker in a window.
+  minCardWidth: 0.4,
   // Longest stretch with no visual change before a gentle "keep the frame alive" push is added.
   maxStaticSeconds: 8,
   staticFillScale: 1.08,
@@ -36,6 +47,27 @@ export const DEFAULT_LIMITS = {
 };
 
 export const STATIC_FILL_REASON = '系统兜底：连续静止段补一次轻推，保持画面呼吸';
+
+/** Layouts that hide the talking head behind the picture (fully or, for pip_face, all but a window). */
+export const COVERING_LAYOUTS = new Set(['fullscreen', 'pip_face']);
+
+function hexToRgb(hex) {
+  const match = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
+  if (!match) return null;
+  const value = parseInt(match[1], 16);
+  return { r: (value >> 16) & 255, g: (value >> 8) & 255, b: value & 255 };
+}
+
+/** Near-white: light enough to read as "the neutral colour", with barely any tint. */
+export function isNeutralWhite(hex) {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return false;
+  const min = Math.min(rgb.r, rgb.g, rgb.b);
+  const max = Math.max(rgb.r, rgb.g, rgb.b);
+  return min >= 225 && max - min <= 30;
+}
+
+const sameColor = (a, b) => String(a || '').toLowerCase() === String(b || '').toLowerCase();
 
 function beatRange(beat, chunks) {
   if (beat.type === 'punch') return chunkRange(chunks, beat.chunkId, beat.chunkId);
@@ -114,11 +146,19 @@ function capDensity(beats, type, perMinute, durationSec, warnings) {
  * B-roll, highlights that are not actually in the subtitle, etc. Every fix is
  * reported so it can be fed back to the model or shown to the operator.
  */
-export function lintPlan(plan, { chunks, layout, duration, limits = DEFAULT_LIMITS } = {}) {
+export function lintPlan(plan, { chunks, layout, duration, source, limits = DEFAULT_LIMITS } = {}) {
   const warnings = [];
   const result = structuredClone(plan);
   const chunkById = new Map(chunks.map(chunk => [chunk.id, chunk]));
   const totalDuration = duration || (chunks.length ? chunks[chunks.length - 1].end : 60);
+
+  // 0. What the pre-flight look at the footage found: a busy lower third (printed clothing,
+  //    patterned background) needs a scrim behind the subtitles — floating text over
+  //    texture is the most common readability failure in the reviewer's notes.
+  if (source?.lowerThirdBusy && !result.subtitleStyle.background?.enabled) {
+    result.subtitleStyle.background = { enabled: true, color: '#000000', alpha: 0.55 };
+    warnings.push(`source frame shows a busy lower third (${source.lowerThirdReason || 'texture behind the subtitles'}); enabled a translucent subtitle bar`);
+  }
 
   // 1. Highlights must literally appear in the subtitle chunk.
   result.chunks = result.chunks.filter(entry => chunkById.has(entry.id));
@@ -180,12 +220,62 @@ export function lintPlan(plan, { chunks, layout, duration, limits = DEFAULT_LIMI
       if (length < limits.minBrollSeconds) {
         warnings.push(`broll ${beat.fromChunk}-${beat.toChunk} is only ${length.toFixed(1)}s; compiler will extend to ${limits.minBrollSeconds}s`);
       }
-      if (beat.layout === 'fullscreen' && range.start < limits.hookSeconds) {
-        warnings.push(`fullscreen broll at ${range.start.toFixed(1)}s cuts away from the face inside the ${limits.hookSeconds}s hook; downgraded to card_top`);
+      // A card that the layout engine can only fit as a thumbnail is worse than no card. When the
+      // face fills the frame, show the object full-frame and keep the speaker in a window instead.
+      if (layout && !COVERING_LAYOUTS.has(beat.layout) && range.start >= limits.hookSeconds && length >= limits.minFullscreenSeconds) {
+        const resolved = layout.broll(beat.layout || 'card_top');
+        if (!COVERING_LAYOUTS.has(resolved.layout) && resolved.width < limits.minCardWidth) {
+          warnings.push(`broll ${beat.fromChunk}-${beat.toChunk} as ${beat.layout} would only be ${Math.round(resolved.width * 100)}% of the canvas wide in this framing; promoted to pip_face`);
+          beat.layout = 'pip_face';
+        }
+      }
+      if (COVERING_LAYOUTS.has(beat.layout) && range.start < limits.hookSeconds) {
+        warnings.push(`${beat.layout} broll at ${range.start.toFixed(1)}s cuts away from the face inside the ${limits.hookSeconds}s hook; downgraded to card_top`);
         beat.layout = 'card_top';
-      } else if (beat.layout === 'fullscreen' && length < limits.minFullscreenSeconds) {
-        warnings.push(`fullscreen broll ${beat.fromChunk}-${beat.toChunk} is only ${length.toFixed(1)}s (< ${limits.minFullscreenSeconds}s) and would read as a glitch; downgraded to lower_card`);
-        beat.layout = 'lower_card';
+      }
+      // The face carries the hook *and* the conclusion: the closing line is where the speaker
+      // looks at the viewer and asks for something, so no picture may cover it.
+      const closingId = chunks[chunks.length - 1]?.id;
+      const protectClosing = limits.protectClosing && chunks.length >= 4 && totalDuration >= 12;
+      if (protectClosing && COVERING_LAYOUTS.has(beat.layout) && chunkIndex.get(beat.toChunk) === chunks.length - 1) {
+        if (beat.fromChunk === closingId) {
+          warnings.push(`${beat.layout} broll on the closing line (chunk ${closingId}) would hide the face during the conclusion; downgraded to lower_card`);
+          beat.layout = 'lower_card';
+        } else {
+          const trimmedTo = chunks[chunks.length - 2].id;
+          const trimmed = chunkRange(chunks, beat.fromChunk, trimmedTo);
+          if (trimmed && trimmed.end - trimmed.start >= limits.minFullscreenSeconds) {
+            warnings.push(`${beat.layout} broll ${beat.fromChunk}-${beat.toChunk} ran into the closing line; ends at chunk ${trimmedTo} so the face is back for the conclusion`);
+            beat.toChunk = trimmedTo;
+            range = trimmed;
+            length = range.end - range.start;
+          } else {
+            warnings.push(`${beat.layout} broll ${beat.fromChunk}-${beat.toChunk} would cover the face through the conclusion and is too short to end earlier; downgraded to lower_card`);
+            beat.layout = 'lower_card';
+          }
+        }
+      }
+      if (COVERING_LAYOUTS.has(beat.layout) && range.start >= limits.hookSeconds && length < limits.minFullscreenSeconds) {
+        // Hold the picture over the next line(s) so it lasts long enough to read; only if that is
+        // impossible does it shrink to a card.
+        const lastHoldIndex = protectClosing ? chunks.length - 2 : chunks.length - 1;
+        let toIndex = chunkIndex.get(beat.toChunk);
+        let extended = range;
+        while (extended.end - extended.start < limits.minFullscreenSeconds && toIndex != null && toIndex < lastHoldIndex && toIndex - chunkIndex.get(beat.toChunk) < 2) {
+          toIndex += 1;
+          const candidate = chunkRange(chunks, beat.fromChunk, chunks[toIndex].id);
+          if (!candidate || candidate.end - candidate.start > limits.maxBrollSeconds) break;
+          extended = candidate;
+        }
+        if (extended.end - extended.start >= limits.minFullscreenSeconds) {
+          warnings.push(`${beat.layout} broll ${beat.fromChunk}-${beat.toChunk} was only ${length.toFixed(1)}s; held until chunk ${chunks[toIndex].id} so it reads as a cutaway, not a glitch`);
+          beat.toChunk = chunks[toIndex].id;
+          range = extended;
+          length = range.end - range.start;
+        } else {
+          warnings.push(`${beat.layout} broll ${beat.fromChunk}-${beat.toChunk} is only ${length.toFixed(1)}s (< ${limits.minFullscreenSeconds}s) and would read as a glitch; downgraded to lower_card`);
+          beat.layout = 'lower_card';
+        }
       }
     }
     if (beat.type === 'punch') {
@@ -245,6 +335,18 @@ export function lintPlan(plan, { chunks, layout, duration, limits = DEFAULT_LIMI
     warnings.push(`broll covered ${before.toFixed(1)}s of ${totalDuration.toFixed(1)}s (> ${Math.round(limits.maxBrollRatio * 100)}%); thinned to ${brollSeconds(beats).toFixed(1)}s so the speaker stays on screen`);
   }
 
+  // 5b2. One neutral + one accent: plain-colour punch text is white or the subtitle highlight
+  //      colour, nothing else. A third colour is what makes a video read as "配色杂乱".
+  if (limits.punchPalette) {
+    const accent = result.subtitleStyle?.highlightColor;
+    for (const beat of beats) {
+      if (beat.type !== 'punch' || beat.flowerId || !beat.color) continue;
+      if (isNeutralWhite(beat.color) || sameColor(beat.color, accent)) continue;
+      warnings.push(`punch "${beat.text}" colour ${beat.color} is off-palette (white or highlight ${accent} only); recoloured to the highlight colour`);
+      beat.color = accent;
+    }
+  }
+
   // 5c. One or two punch looks per video. Keep the most used ones, restyle the strays.
   const punchStyleKey = beat => (beat.flowerId ? `flower:${beat.flowerId}` : `color:${String(beat.color || '').toLowerCase()}`);
   const styleCounts = new Map();
@@ -266,6 +368,22 @@ export function lintPlan(plan, { chunks, layout, duration, limits = DEFAULT_LIMI
     warnings.push(`punch text used ${styleCounts.size} different looks (> ${limits.maxPunchStyles}); ${restyled} restyled to match the dominant one so the video reads as one design`);
   }
 
+  // 5d. One apex. The loudest word in the video is an event only if nothing else is as loud:
+  //     when several punches share the top size, the one carrying the payoff (a ding/success
+  //     beat, then a number, then the earliest) keeps it and the rest step down.
+  if (limits.apexPunch) {
+    const punches = beats.filter(beat => beat.type === 'punch' && Number.isFinite(beat.fontSize));
+    const top = Math.max(...punches.map(beat => beat.fontSize), 0);
+    const loudest = punches.filter(beat => beat.fontSize === top);
+    if (loudest.length > 1 && top >= 18) {
+      const score = beat => (['ding', 'success'].includes(beat.sfx) ? 2 : 0) + (/\d/.test(beat.text) ? 1 : 0);
+      const apex = loudest.reduce((best, beat) => (score(beat) > score(best) ? beat : best));
+      const stepped = Math.max(14, top - (limits.apexStep || 3));
+      for (const beat of loudest) if (beat !== apex) beat.fontSize = stepped;
+      warnings.push(`${loudest.length} punches shared the largest size ${top}; "${apex.text}" stays the apex, the other ${loudest.length - 1} stepped down to ${stepped} so the peak reads as a peak`);
+    }
+  }
+
   // 6. Punch text and B-roll fighting for the same patch of screen: move the word, keep the picture.
   const brolls = beats.filter(beat => beat.type === 'broll');
   const resolvedBroll = name => (layout ? layout.broll(name).layout : name);
@@ -278,6 +396,10 @@ export function lintPlan(plan, { chunks, layout, duration, limits = DEFAULT_LIMI
     if (zones.has('fullscreen') && beat.position !== 'top') {
       warnings.push(`punch "${beat.text}" coincides with fullscreen B-roll; moved to top`);
       beat.position = 'top';
+    } else if (zones.has('pip_face') && resolvedPunch !== 'chest') {
+      // The speaker window owns the top-left; the big word goes over the lower half of the picture.
+      warnings.push(`punch "${beat.text}" coincides with a pip_face picture; moved to chest, clear of the speaker window`);
+      beat.position = 'chest';
     } else if (zones.has('lower_card') && resolvedPunch === 'chest') {
       warnings.push(`punch "${beat.text}" would sit on a lower_card picture; moved to top`);
       beat.position = 'top';

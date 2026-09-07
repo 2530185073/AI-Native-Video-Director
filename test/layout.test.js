@@ -83,6 +83,37 @@ test('tight close-up framing: overlays adapt to the measured free space', () => 
   assert.ok(roomyCardTop >= SAFE_ZONE.top - 0.001, `card top ${roomyCardTop} must clear the top UI band`);
 });
 
+test('pip_face keeps the speaker in a round window over a full-frame picture', () => {
+  const tight = createLayout({ person: { x: 0.05, y: 0.13, w: 0.9, h: 0.87 }, face: { x: 0.28, y: 0.145, w: 0.44, h: 0.385 } });
+  assert.equal(tight.framing, 'tight');
+  const placement = tight.broll('pip_face');
+  assert.equal(placement.layout, 'pip_face');
+  assert.ok(placement.coversPerson);
+  assert.equal(placement.widthPx, 1080, 'the picture itself is full frame');
+  const pip = placement.pip;
+  assert.equal(pip.mask_type, '圆形');
+  // Mask is centred on the face in material space (centre origin, +y down).
+  assert.ok(Math.abs(pip.mask_center_x - (0.28 + 0.22 - 0.5)) < 0.002);
+  assert.ok(Math.abs(pip.mask_center_y - (0.145 + 0.1925 + 0.01 - 0.5)) < 0.002);
+  assert.ok(pip.mask_size > 0.385 && pip.mask_size <= 0.9, 'circle is a little larger than the face');
+  // Scaled so the circle lands as a 34%-of-width window inside the top-left safe zone.
+  const diameterPx = pip.mask_size * 1920 * pip.scale;
+  assert.ok(Math.abs(diameterPx - 0.30 * 1080) < 12, `window diameter ${diameterPx}`);
+  assert.ok(pip.diameter >= 0.2 && pip.diameter <= 0.3, 'corner bubble stays in the 20-30% width band where a face still reads');
+  assert.ok(pip.center.x - pip.diameter / 2 >= SAFE_ZONE.left - 0.001, 'window clears the left margin');
+  assert.ok(pip.center.y - (diameterPx / 1920) / 2 >= SAFE_ZONE.top - 0.001, 'window clears the top UI band');
+  // Placing the clip: canvas position of the (scaled) mask centre must equal the window centre.
+  const faceCx = 0.28 + 0.22;
+  const faceCy = 0.145 + 0.1925 + 0.01;
+  const landedX = 0.5 + pip.transform_x_px / (2 * 1080) + (faceCx - 0.5) * pip.scale;
+  const landedY = 0.5 - pip.transform_y_px / (2 * 1920) + (faceCy - 0.5) * pip.scale;
+  assert.ok(Math.abs(landedX - pip.center.x) < 0.003, `window x ${landedX} vs ${pip.center.x}`);
+  assert.ok(Math.abs(landedY - pip.center.y) < 0.003, `window y ${landedY} vs ${pip.center.y}`);
+
+  assert.equal(createLayout({}).framing, 'medium');
+  assert.equal(createLayout({ face: { x: 0.4, y: 0.25, w: 0.2, h: 0.14 } }).framing, 'wide');
+});
+
 test('overlays respect the platform UI safe zones', () => {
   const layout = createLayout({});
   const bottom = layout.subtitle('bottom');

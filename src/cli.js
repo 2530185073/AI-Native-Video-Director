@@ -4,8 +4,9 @@ import { join, resolve } from 'node:path';
 import { loadEnvFile } from './config.js';
 import { directSecondCut } from './pipeline.js';
 import { createLayout } from './layout/layout.js';
-import { resolveMedia } from './media.js';
+import { isLocalFile, resolveMedia } from './media.js';
 import { reviewRender } from './review.js';
+import { inspectSource } from './inspect.js';
 import { createLLM } from './providers/llm/index.js';
 import { createImageProvider } from './providers/image/index.js';
 import { createVectCutClient } from './vectcut/client.js';
@@ -34,6 +35,8 @@ const HELP = `AI Native Video Director — 数字人口播二次精剪
   --name NAME          草稿名
   --render             生成草稿后提交云渲染并等待结果
   --review             渲染完成后自动审片：ffmpeg 抽帧拼 contact-sheet.jpg，并让 Gemini 看图打分写 review.json（隐含 --render）
+  --fix                审片判定为 fix 时，把问题回灌给导演重做一版并再次渲染、审片（最多 1 轮；隐含 --review）
+  --no-inspect         跳过开拍前的素材检查（默认：抽一帧让 Gemini 看人脸位置 / 字幕区是否杂乱 / 衣着颜色）
   --resolution 1080P   渲染分辨率（默认 1080P）
   --dry-run            只生成 plan 与操作列表，不调用 VectCut
   --out DIR            输出目录（默认 ./out/<时间戳>）
@@ -91,7 +94,9 @@ async function main() {
   const words = args.words ? JSON.parse(readFileSync(resolve(args.words), 'utf8')) : undefined;
   const brief = args.brief ? JSON.parse(readFileSync(resolve(args.brief), 'utf8')) : undefined;
   const dryRun = Boolean(args['dry-run']);
-  const review = Boolean(args.review) && !dryRun;
+  const fix = Boolean(args.fix) && !dryRun;
+  const review = (Boolean(args.review) || fix) && !dryRun;
+  const inspect = !args['no-inspect'] && !args['from-plan'];
   const outDir = resolve(args.out || join('out', new Date().toISOString().replace(/[:.]/g, '-')));
   mkdirSync(outDir, { recursive: true });
 
@@ -104,6 +109,8 @@ async function main() {
   } else {
     llm = createLLM();
   }
+  // Vision entry point for the pre-flight look and the post-render review.
+  const visionLlm = () => (typeof llm.generateContent === 'function' ? llm : (process.env.LLM_API_KEY || process.env.GOOGLE_GEMINI_API_KEY ? createLLM() : null));
 
   // The client is also the default ASR provider, so create it whenever a key exists (dry runs included).
   const vectcut = process.env.VECTCUT_API_KEY ? createVectCutClient({ logger: message => logger(`vectcut ${message}`) }) : null;
@@ -114,18 +121,52 @@ async function main() {
   const bgmUrl = bgmArg && bgmArg !== 'none' ? bgmArg : undefined;
   const numberOr = (value, fallback) => (value === undefined || value === '' ? fallback : Number(value));
 
+  const writeOutputs = (dir, result) => {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'chunks.json'), JSON.stringify(result.chunks, null, 2));
+    writeFileSync(join(dir, 'plan.json'), JSON.stringify(result.plan, null, 2));
+    writeFileSync(join(dir, 'ops.json'), JSON.stringify(result.ops, null, 2));
+    writeFileSync(join(dir, 'result.json'), JSON.stringify({ ...result, chunks: undefined, ops: undefined, words: undefined }, null, 2));
+  };
+
   try {
     // Local files (e.g. D:\clips\take1.mp4) are uploaded to VectCut temp storage; audio is extracted with ffmpeg.
     const media = await resolveMedia({ video: args.video, audio: args.audio, client: vectcut, logger });
 
-    const result = await directSecondCut({
+    // Pre-flight: one frame of the footage tells the director where the face is, whether the
+    // subtitle band is busy and what colours the clothes are. Never fatal.
+    let source = null;
+    let person = parseBox(args.person);
+    let face = parseBox(args.face);
+    if (inspect) {
+      try {
+        const looked = await inspectSource({
+          videoUrl: media.videoUrl,
+          videoPath: isLocalFile(args.video) ? resolve(String(args.video)) : undefined,
+          outDir,
+          llm: visionLlm(),
+          logger
+        });
+        source = looked.source;
+        if (source) {
+          writeFileSync(join(outDir, 'source.json'), JSON.stringify({ frame: looked.frame, ...source }, null, 2));
+          if (!face && source.face) { face = source.face; logger(`inspect: using detected face box ${JSON.stringify(face)}`); }
+          if (!person && source.person) { person = source.person; logger(`inspect: using detected person box ${JSON.stringify(person)}`); }
+        }
+      } catch (error) {
+        logger(`inspect skipped: ${error.message}`);
+      }
+    }
+
+    const baseInputs = {
       videoUrl: media.videoUrl,
       audioUrl: media.audioUrl,
       script,
       words,
       brief,
-      person: parseBox(args.person),
-      face: parseBox(args.face),
+      source,
+      person,
+      face,
       canvas: parseCanvas(args.canvas),
       bgmUrl,
       disableBgm: bgmArg === 'none',
@@ -136,44 +177,69 @@ async function main() {
       render: Boolean(args.render) || review,
       renderOptions: { resolution: args.resolution || '1080P' },
       dryRun
-    }, { llm, vectcut, imageProvider, logger });
-
-    writeFileSync(join(outDir, 'chunks.json'), JSON.stringify(result.chunks, null, 2));
-    writeFileSync(join(outDir, 'plan.json'), JSON.stringify(result.plan, null, 2));
-    writeFileSync(join(outDir, 'ops.json'), JSON.stringify(result.ops, null, 2));
-    writeFileSync(join(outDir, 'result.json'), JSON.stringify({ ...result, chunks: undefined, ops: undefined }, null, 2));
+    };
 
     // Post-render QC: contact sheet + vision review. Never fails the run — it produces evidence.
-    let qc = null;
-    if (review && result.render?.result) {
+    const runReview = async (dir, result) => {
+      if (!review || !result.render?.result) return null;
       try {
-        const reviewer = typeof llm.generateContent === 'function' ? llm : (process.env.LLM_API_KEY || process.env.GOOGLE_GEMINI_API_KEY ? createLLM() : null);
-        qc = await reviewRender({
+        const qc = await reviewRender({
           videoUrl: result.render.result,
           plan: result.plan,
           chunks: result.chunks,
           duration: result.timeline.duration,
-          outDir,
-          llm: reviewer,
+          outDir: dir,
+          llm: visionLlm(),
           brief,
           layout: createLayout(result.layout),
+          canvas: result.layout?.canvas,
           logger
         });
-        writeFileSync(join(outDir, 'review.json'), JSON.stringify({ frames: qc.frames, sheet: qc.sheet, review: qc.review }, null, 2));
+        writeFileSync(join(dir, 'review.json'), JSON.stringify({ probe: qc.probe, frames: qc.frames, sheet: qc.sheet, review: qc.review }, null, 2));
+        return qc;
       } catch (error) {
         logger(`review skipped: ${error.message}`);
+        return null;
       }
+    };
+
+    let result = await directSecondCut(baseInputs, { llm, vectcut, imageProvider, logger });
+    writeOutputs(outDir, result);
+    let qc = await runReview(outDir, result);
+    let rounds = [];
+
+    // The reviewer's notes go back to the director once: same footage, same timeline, a
+    // plan that has to answer each issue. The first cut is kept under v1/ for comparison.
+    if (fix && qc?.review?.verdict === 'fix' && qc.review.issues?.length) {
+      logger(`fix round: ${qc.review.issues.length} issue(s) fed back to the director`);
+      const firstDir = join(outDir, 'v1');
+      writeOutputs(firstDir, result);
+      writeFileSync(join(firstDir, 'review.json'), JSON.stringify({ probe: qc.probe, frames: qc.frames, sheet: qc.sheet, review: qc.review }, null, 2));
+      rounds.push({ dir: firstDir, verdict: qc.review.verdict, overall: qc.review.overall });
+      const revised = await directSecondCut({
+        ...baseInputs,
+        words: result.words,
+        brief: { ...(brief || {}), reviewFeedback: qc.review.issues },
+        name: args.name ? `${args.name} v2` : undefined
+      }, { llm, vectcut, imageProvider, logger });
+      result = revised;
+      writeOutputs(outDir, result);
+      qc = await runReview(outDir, result);
+      rounds.push({ dir: outDir, verdict: qc?.review?.verdict, overall: qc?.review?.overall });
     }
 
     console.log(JSON.stringify({
       outDir,
       concept: result.plan.concept,
+      framing: result.layout.framing,
+      source: source ? { lowerThirdBusy: source.lowerThirdBusy, clothingColors: source.clothingColors } : null,
       chunks: result.chunks.length,
       beats: result.plan.beats.length,
       lintWarnings: result.lintWarnings,
       draft: result.draft,
       render: result.render ? { status: result.render.status, url: result.render.result } : null,
-      review: qc ? { sheet: qc.sheet, verdict: qc.review?.verdict, overall: qc.review?.overall, scores: qc.review?.scores, issues: qc.review?.issues, summary: qc.review?.summary } : null
+      review: qc ? { sheet: qc.sheet, verdict: qc.review?.verdict, overall: qc.review?.overall, scores: qc.review?.scores, capped: qc.review?.capped, issues: qc.review?.issues, summary: qc.review?.summary } : null,
+      rounds: rounds.length ? rounds : undefined
     }, null, 2));
   } catch (error) {
     logger(`failed: ${error.message}`);

@@ -129,8 +129,9 @@ export const PUNCH_POSITIONS = [
 ];
 
 export const BROLL_LAYOUTS = [
-  { name: 'card_top', hint: '人物头顶上方的信息卡，人物保持可见，最常用' },
-  { name: 'fullscreen', hint: '全屏盖住人物 1.5-4 秒，用于展示商品/案例/对比图' },
+  { name: 'card_top', hint: '人物头顶上方的信息卡，人物保持可见，中远景时最常用' },
+  { name: 'pip_face', hint: '全屏配图 + 人物缩成左上角圆形小窗（人物仍在场），近景大头像展示商品/案例的首选，2-4 秒' },
+  { name: 'fullscreen', hint: '全屏盖住人物 2-4 秒，只在“必须看清整张图、且人物暂时退场也没关系”时用' },
   { name: 'pip_side', hint: '脸侧画中画小图，自动选择空白一侧' },
   { name: 'lower_card', hint: '字幕上方一块横卡，适合数据、列表' }
 ];

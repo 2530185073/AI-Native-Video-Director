@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { bgmOps, compilePlan, HOOK_PUNCH_LATEST, PUNCH_FLOOR_HOLD, PUNCH_MIN_HOLD, summarizeOps, TRACKS, ZOOM_RAMP_IN, ZOOM_RAMP_OUT } from '../src/vectcut/compiler.js';
+import { bgmOps, compilePlan, HOOK_PUNCH_LATEST, PUNCH_FLOOR_HOLD, PUNCH_MIN_HOLD, SUBTITLE_LEAD, summarizeOps, TRACKS, ZOOM_RAMP_IN, ZOOM_RAMP_OUT } from '../src/vectcut/compiler.js';
+import { createLayout } from '../src/layout/layout.js';
 import { linearToDb } from '../src/director/audio.js';
 import { executeOps, summarizeScript } from '../src/vectcut/executor.js';
 import { fixture, samplePlan, mockVectCut, mockImageProvider } from './helpers/fixture.js';
@@ -91,6 +92,39 @@ test('compilePlan treats a punch on the opening line as a title card and gives f
   const scaleTimes = zoom.times.filter((_, index) => zoom.property_types[index] === 'uniform_scale');
   assert.ok(Math.abs((scaleTimes[1] - scaleTimes[0]) - ZOOM_RAMP_IN) < 0.011, 'fast push in');
   assert.ok(Math.abs((scaleTimes[3] - scaleTimes[2]) - ZOOM_RAMP_OUT) < 0.011, 'slow release');
+});
+
+test('compilePlan renders pip_face as a full-frame picture plus a muted, circle-masked copy of the speaker; subtitles lead the voice', () => {
+  const { chunks } = fixture();
+  const layout = createLayout({ person: { x: 0.05, y: 0.13, w: 0.9, h: 0.87 }, face: { x: 0.28, y: 0.145, w: 0.44, h: 0.385 } });
+  const plan = samplePlan(chunks);
+  plan.beats = [
+    { type: 'broll', fromChunk: chunks[4].id, toChunk: chunks[5].id, prompt: '翡翠戒指特写', layout: 'pip_face', imageIntro: null, outro: null, reason: 'show the object' }
+  ];
+  const ops = compilePlan({ plan, chunks, layout, inputs });
+  const picture = ops.find(op => op.op === 'broll_image');
+  const windowIndex = ops.findIndex(op => op.op === 'add_video' && op.params.track_name === TRACKS.pip);
+  const window = ops[windowIndex];
+  assert.ok(picture && window, 'both the picture and the speaker window are emitted');
+  assert.equal(ops.indexOf(picture) + 1, windowIndex, 'window follows its picture');
+  assert.equal(picture.target.fit, 'cover');
+  assert.equal(picture.params.relative_index, 200);
+  assert.ok(picture.prompt.includes('左上角'), 'image prompt keeps the corner clear for the window');
+  assert.equal(window.params.video_url, inputs.videoUrl);
+  assert.equal(window.params.relative_index, 300, 'window sits above the picture');
+  assert.equal(window.params.volume, -100, 'second copy of the clip is muted');
+  assert.equal(window.params.mask_type, '圆形');
+  assert.equal(window.params.start, picture.params.start);
+  assert.equal(window.params.target_start, picture.params.start);
+  assert.equal(window.params.end, picture.params.end);
+  assert.ok(window.params.scale_x < 0.6 && window.params.scale_x === window.params.scale_y);
+  assert.equal(window.optional, true);
+
+  const subtitles = ops.find(op => op.op === 'add_batch_text').params;
+  assert.ok(subtitles.starts[1] < chunks[1].start, 'lines appear slightly before the first word');
+  assert.ok(subtitles.starts[1] > subtitles.ends[0], 'but never over the previous line (which lets go early)');
+  assert.ok(subtitles.ends[0] >= subtitles.starts[0] + 0.3, 'the outgoing line still gets a readable hold');
+  assert.ok(chunks[1].start - subtitles.starts[1] <= SUBTITLE_LEAD + 1e-9);
 });
 
 test('compilePlan lays the AI-chosen BGM under the whole video at 12% (converted to dB) and trims SFX to the beat', () => {

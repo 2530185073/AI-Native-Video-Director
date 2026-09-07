@@ -26,6 +26,7 @@ export async function directSecondCut(inputs, deps = {}) {
     person,
     face,
     brief,
+    source,
     bgmUrl,
     bgmDuration,
     disableBgm = false,
@@ -73,6 +74,7 @@ export async function directSecondCut(inputs, deps = {}) {
     brief,
     duration: timeline.duration,
     layout,
+    source,
     catalog,
     logger
   });
@@ -104,8 +106,9 @@ export async function directSecondCut(inputs, deps = {}) {
 
   return {
     timeline: { provider: timeline.provider, duration: timeline.duration, wordCount: timeline.words.length, coverage: chunked.coverage },
+    words: timeline.words,
     chunks: chunked.chunks,
-    layout: { canvas: layout.canvas, person: layout.person, face: layout.face, freeSide: layout.freeSide },
+    layout: { canvas: layout.canvas, person: layout.person, face: layout.face, freeSide: layout.freeSide, framing: layout.framing },
     plan: directed.plan,
     lintWarnings: directed.lintWarnings,
     llmAttempts: directed.attempts,

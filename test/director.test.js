@@ -4,7 +4,7 @@ import { buildPlanSchema, validatePlan } from '../src/director/schema.js';
 import { DEFAULT_LIMITS, lintPlan, STATIC_FILL_REASON } from '../src/director/lint.js';
 import { createEditingPlan, normalizePlan } from '../src/director/planner.js';
 import { chunkRange } from '../src/timeline/chunker.js';
-import { DIRECTOR_SYSTEM_PROMPT, loadDirectorSkill, rhythmBudget } from '../src/director/prompt.js';
+import { DIRECTOR_SYSTEM_PROMPT, loadDirectorSkill, rhythmBudget, scriptDensity } from '../src/director/prompt.js';
 import { simplifySchema, extractJson } from '../src/providers/llm/openai-compatible.js';
 import { fixture, samplePlan, mockLLM } from './helpers/fixture.js';
 
@@ -186,6 +186,61 @@ test('lint unifies punch looks and keeps big words off the pictures', () => {
   const onCard = punches.find(beat => beat.chunkId === 10);
   assert.equal(onCard.position, 'top', 'a chest punch over a lower_card picture moves to the top');
   assert.ok(warnings.some(warning => warning.includes('lower_card picture')));
+});
+
+test('lint keeps the face on screen for the closing line and lets only one punch be the loudest', () => {
+  const { chunks, layout, duration } = fixture();
+  const plan = samplePlan(chunks);
+  const last = chunks[chunks.length - 1];
+  const beforeLast = chunks[chunks.length - 2];
+  const twoBeforeLast = chunks[chunks.length - 3];
+  const punch = (chunkId, extra) => ({ type: 'punch', chunkId, text: chunks[chunkId - 1].text.slice(0, 2), flowerId: null, color: '#FFFFFF', fontSize: 22, intro: '弹入', loop: null, position: 'above_head', outro: null, sfx: null, reason: 'big word here', ...extra });
+  plan.beats = [
+    // Runs into the last line → trimmed so the conclusion is spoken to camera.
+    { type: 'broll', fromChunk: twoBeforeLast.id, toChunk: last.id, prompt: '一枚银元特写照片，写实', layout: 'fullscreen', imageIntro: null, outro: null, sfx: null, reason: 'object' },
+    // Starts on the last line → cannot be trimmed, becomes a card that leaves the face visible.
+    { type: 'broll', fromChunk: last.id, toChunk: last.id, prompt: '一枚银元特写照片，写实', layout: 'pip_face', imageIntro: null, outro: null, sfx: null, reason: 'object' },
+    punch(2, { sfx: 'pop' }),
+    punch(4, { sfx: 'ding', text: '26.8' }),
+    punch(6, {})
+  ];
+  const { plan: linted, warnings } = lintPlan(plan, { chunks, layout, duration, limits: { ...DEFAULT_LIMITS, punchPerMinute: 30, brollPerMinute: 30, maxBrollRatio: 1 } });
+
+  const brolls = linted.beats.filter(beat => beat.type === 'broll');
+  const trimmed = brolls.find(beat => beat.fromChunk === twoBeforeLast.id);
+  assert.equal(trimmed.layout, 'fullscreen');
+  assert.equal(trimmed.toChunk, beforeLast.id, 'covering picture ends before the closing line');
+  const onClosing = brolls.find(beat => beat.fromChunk === last.id);
+  assert.ok(onClosing, 'the beat is kept, not dropped');
+  assert.equal(onClosing.layout, 'lower_card', 'a picture that starts on the closing line becomes a card');
+  assert.ok(warnings.filter(warning => warning.includes('closing line')).length >= 2);
+
+  const punches = linted.beats.filter(beat => beat.type === 'punch');
+  const loudest = punches.filter(beat => beat.fontSize === 22);
+  assert.equal(loudest.length, 1, 'exactly one apex');
+  assert.equal(loudest[0].chunkId, 4, 'the ding-backed number is the payoff');
+  for (const beat of punches) if (beat.chunkId !== 4) assert.equal(beat.fontSize, 22 - DEFAULT_LIMITS.apexStep);
+  assert.ok(warnings.some(warning => warning.includes('apex')));
+  assert.equal(validatePlan(linted, { chunks }).length, 0);
+});
+
+test('rhythm budget scales with script density', () => {
+  const { chunks, duration, script } = fixture();
+  const dense = scriptDensity(script, duration);
+  assert.ok(dense.hits >= 5, `numbers and enumerations counted (${dense.hits})`);
+  assert.equal(dense.level, 'high', 'a 22s script with prices, a weight and 第一/第二/第三 is dense');
+  const sparse = scriptDensity('那天晚上我一个人走在回家的路上，风很大，我想了很多以前的事情，然后慢慢就释怀了。', 60);
+  assert.equal(sparse.level, 'low');
+  assert.ok(sparse.multiplier < 1 && dense.multiplier > 1);
+
+  const budget = rhythmBudget(duration, chunks, { script });
+  assert.ok(budget.includes('信息密度高'));
+  assert.ok(budget.includes('apex'), 'the one-apex rule is spelled out to the director');
+  assert.ok(budget.includes('最后一句'), 'closing line protection is spelled out too');
+  const denseCount = Number(/punch 约 (\d+)-/.exec(budget)[1]);
+  const sparseBudget = rhythmBudget(duration, chunks, { script: '那天晚上我一个人走在回家的路上，风很大，我想了很多以前的事情。' });
+  const sparseCount = Number(/punch 约 (\d+)-/.exec(sparseBudget)[1]);
+  assert.ok(denseCount >= sparseCount, 'a dense script earns at least as many beats');
 });
 
 test('schema simplification keeps structure and drops validation-only keywords', () => {

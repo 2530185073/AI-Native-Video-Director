@@ -10,6 +10,7 @@ export const TRACKS = {
   subtitle: 'subtitle',
   punch: 'punch_text',
   broll: 'broll',
+  pip: 'pip_face',
   effect: 'effect_01'
 };
 
@@ -18,9 +19,16 @@ export const LAYERS = {
   video: 0,
   broll: 100,
   brollFullscreen: 200,
+  pip: 300,
   subtitle: 0,
   punch: 20
 };
+
+/**
+ * Reading is faster than listening: a line that appears ~100 ms before the first word
+ * feels synchronised, one that appears after it feels late (OpusClip's timing study).
+ */
+export const SUBTITLE_LEAD = 0.12;
 
 const round2 = value => Math.round(value * 100) / 100;
 
@@ -107,6 +115,17 @@ function compileSubtitles({ plan, chunks, layout, canvas }) {
     });
   }
   if (!items.length) return [];
+  // Every line change happens SUBTITLE_LEAD before the next line's first word: the outgoing
+  // line lets go a little early (hearing lags reading) and the incoming one is already there.
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index];
+    const previous = items[index - 1];
+    const lead = Math.min(SUBTITLE_LEAD, previous ? Math.max(0, item.start - previous.start - 0.5) : item.start);
+    if (lead <= 0) continue;
+    const boundary = round2(item.start - lead);
+    if (previous && previous.end > boundary - 0.02) previous.end = round2(Math.max(previous.start + 0.3, boundary - 0.02));
+    item.start = boundary;
+  }
 
   const batch = {
     ...base,
@@ -233,38 +252,80 @@ function compileZooms(beats, { chunks, layout, limits }) {
   }];
 }
 
-function compileBroll(beat, { chunks, layout, canvas, limits, style }) {
+/** Composition hint appended to the image prompt when the speaker window covers the top-left corner. */
+const PIP_FACE_PROMPT_HINT = '构图：主体放在画面中部偏下，左上角约三分之一区域留作干净的留白或背景，不要把重要内容放在左上角。';
+
+function compileBroll(beat, { chunks, layout, canvas, limits, style, inputs = {} }) {
   const range = chunkRange(chunks, beat.fromChunk, beat.toChunk);
   if (!range) return null;
   const placement = layout.broll(beat.layout || 'card_top');
-  const fullscreen = placement.layout === 'fullscreen';
-  const minSeconds = fullscreen ? Math.max(limits.minBrollSeconds, limits.minFullscreenSeconds || 0) : limits.minBrollSeconds;
+  const covers = Boolean(placement.coversPerson);
+  const pipFace = placement.layout === 'pip_face';
+  const minSeconds = covers ? Math.max(limits.minBrollSeconds, limits.minFullscreenSeconds || 0) : limits.minBrollSeconds;
   let start = range.start;
   let end = Math.max(range.end, start + minSeconds);
   if (end - start > limits.maxBrollSeconds) end = start + limits.maxBrollSeconds;
-  return {
+  if (inputs.duration) end = Math.min(end, inputs.duration);
+  const image = {
     op: 'broll_image',
-    prompt: beat.prompt,
+    prompt: pipFace ? `${beat.prompt}\n${PIP_FACE_PROMPT_HINT}` : beat.prompt,
     aspect: placement.aspect,
     stylePrompt: style,
-    target: { widthPx: placement.widthPx, heightPx: placement.heightPx, fit: fullscreen ? 'cover' : 'contain' },
+    target: { widthPx: placement.widthPx, heightPx: placement.heightPx, fit: covers ? 'cover' : 'contain' },
     params: {
       start: round2(start),
       end: round2(end),
       track_name: TRACKS.broll,
-      relative_index: fullscreen ? LAYERS.brollFullscreen : LAYERS.broll,
+      relative_index: covers ? LAYERS.brollFullscreen : LAYERS.broll,
       transform_x_px: placement.transform_x_px,
       transform_y_px: placement.transform_y_px,
-      intro_animation: beat.imageIntro || (fullscreen ? '渐显' : '放大'),
+      intro_animation: beat.imageIntro || (covers ? '渐显' : '放大'),
       intro_animation_duration: 0.3,
-      outro_animation: beat.outro || (fullscreen ? '缩小' : '缩小'),
+      outro_animation: beat.outro || '缩小',
       outro_animation_duration: 0.25,
       width: canvas.width,
       height: canvas.height,
-      ...(fullscreen ? {} : { mask_type: '矩形', mask_round_corner: 12 })
+      ...(covers ? {} : { mask_type: '矩形', mask_round_corner: 12 })
     },
     note: `broll ${placement.layout} (${beat.reason})`
   };
+  if (!pipFace) return image;
+
+  // The speaker stays on screen: a muted second copy of the clip, circle-masked around the
+  // face and parked in the corner above the picture. Optional — if the PiP fails the
+  // picture still plays full-frame.
+  const pip = placement.pip;
+  const window = {
+    op: 'add_video',
+    params: {
+      video_url: inputs.videoUrl,
+      start: round2(start),
+      end: round2(end),
+      target_start: round2(start),
+      ...(inputs.duration ? { duration: inputs.duration } : {}),
+      track_name: TRACKS.pip,
+      relative_index: LAYERS.pip,
+      volume: -100,
+      scale_x: pip.scale,
+      scale_y: pip.scale,
+      transform_x_px: pip.transform_x_px,
+      transform_y_px: pip.transform_y_px,
+      mask_type: pip.mask_type,
+      mask_center_x: pip.mask_center_x,
+      mask_center_y: pip.mask_center_y,
+      mask_size: pip.mask_size,
+      mask_feather: 0,
+      intro_animation: '渐显',
+      intro_animation_duration: 0.25,
+      outro_animation: '缩小',
+      outro_animation_duration: 0.25,
+      width: canvas.width,
+      height: canvas.height
+    },
+    optional: true,
+    note: `speaker window for pip_face broll (${beat.reason})`
+  };
+  return [image, window];
 }
 
 function compileEffect(beat, { chunks, canvas, limits }) {
@@ -449,9 +510,10 @@ export function compilePlan({
       const nextPunchStart = punchStarts.find(value => value > start + 0.05) ?? Infinity;
       op = compilePunch(beat, { chunks, layout, canvas, plan, nextPunchStart, videoEnd });
     }
-    else if (beat.type === 'broll') op = compileBroll(beat, { chunks, layout, canvas, limits, style: imageStylePrompt });
+    else if (beat.type === 'broll') op = compileBroll(beat, { chunks, layout, canvas, limits, style: imageStylePrompt, inputs: { videoUrl: inputs.videoUrl, duration } });
     else if (beat.type === 'effect') op = compileEffect(beat, { chunks, canvas, limits });
-    if (op) ops.push(op);
+    if (Array.isArray(op)) ops.push(...op);
+    else if (op) ops.push(op);
   }
 
   ops.push(...compileSfx({ plan, chunks, inputs, library: audioLibrary }));
