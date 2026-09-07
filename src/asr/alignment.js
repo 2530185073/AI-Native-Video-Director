@@ -196,13 +196,18 @@ export function alignScriptCharacters(script, words) {
     const whisperUnit = whisperUnits[whisperIndex];
     target.start = whisperUnit.start;
     target.end = whisperUnit.end;
+    target.exact = whisperUnit.norm === unit.norm;
   });
 
   const alignable = result.filter(entry => entry.alignable);
   const matched = alignable.filter(entry => entry.start != null);
+  const exact = alignable.filter(entry => entry.exact);
   return {
     characters: result,
-    coverage: alignable.length ? matched.length / alignable.length : 1
+    // Timing coverage: substitutions (homophone ASR errors) still yield usable timestamps.
+    coverage: alignable.length ? matched.length / alignable.length : 1,
+    // Exact-character coverage: the honest measure of whether the ASR heard this script at all.
+    exactCoverage: alignable.length ? exact.length / alignable.length : 1
   };
 }
 

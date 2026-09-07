@@ -130,12 +130,45 @@ test('VectCut ASR aligns the script (sta mode), polls until success and flattens
     assert.equal(timeline.provider, 'vectcut');
     assert.equal(timeline.duration, 0.734);
 
-    const groqFetch = async () => new Response(JSON.stringify({ duration: 0.734, words: [{ word: '要想在浦东', start: 0, end: 0.734 }] }), { status: 200 });
+    const groqCalls = [];
+    let hallucinate = 0;
+    const groqFetch = async (url, init) => {
+      const model = init.body.get('model');
+      groqCalls.push({ model, prompt: init.body.get('prompt') });
+      if (hallucinate > 0) {
+        hallucinate -= 1;
+        return new Response(JSON.stringify({ duration: 0.734, text: '相关的部分', words: [{ word: '相关的部分', start: 0, end: 0.734 }] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ duration: 0.734, words: [{ word: '要想在浦东', start: 0, end: 0.734 }] }), { status: 200 });
+    };
     const original = globalThis.fetch;
     globalThis.fetch = async (url, init) => (String(url).includes('a.mp3') ? new Response(new Uint8Array([1, 2, 3])) : groqFetch(url, init));
     try {
       const viaGroq = await getWordTimeline({ audioUrl: 'https://a.mp3', script: '要想在浦东', provider: 'auto', groq: { apiKey: 'gsk_test' }, vectcut: { client } });
       assert.equal(viaGroq.provider, 'groq');
+      assert.equal(viaGroq.coverage, 1);
+      assert.equal(groqCalls.length, 1);
+      assert.equal(groqCalls[0].prompt, null, 'full script is not used as Whisper prompt by default');
+
+      // First answer hallucinated → retry with the other model, which succeeds.
+      groqCalls.length = 0;
+      hallucinate = 1;
+      const retried = await getWordTimeline({ audioUrl: 'https://a.mp3', script: '要想在浦东', provider: 'groq', groq: { apiKey: 'gsk_test' } });
+      assert.equal(retried.provider, 'groq');
+      assert.deepEqual(groqCalls.map(call => call.model), ['whisper-large-v3', 'whisper-large-v3-turbo']);
+
+      // Both attempts hallucinate → VectCut script alignment takes over.
+      groqCalls.length = 0;
+      hallucinate = 2;
+      const fellBack = await getWordTimeline({ audioUrl: 'https://a.mp3', script: '要想在浦东', provider: 'auto', groq: { apiKey: 'gsk_test' }, vectcut: { client, intervalMs: 1 } });
+      assert.equal(fellBack.provider, 'vectcut');
+      assert.equal(groqCalls.length, 2);
+
+      // No fallback available → best Groq attempt is returned with its low coverage.
+      hallucinate = 2;
+      const lowOnly = await getWordTimeline({ audioUrl: 'https://a.mp3', script: '要想在浦东', provider: 'groq', groq: { apiKey: 'gsk_test' } });
+      assert.equal(lowOnly.provider, 'groq');
+      assert.ok(lowOnly.coverage < 0.6);
     } finally {
       globalThis.fetch = original;
     }

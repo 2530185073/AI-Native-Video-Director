@@ -26,7 +26,8 @@ function run(command, args) {
 export async function extractAudio(videoPath, { ffmpeg = process.env.FFMPEG_PATH || 'ffmpeg', outputPath } = {}) {
   const target = outputPath || join(tmpdir(), `${basename(videoPath, extname(videoPath))}-${Date.now()}.mp3`);
   try {
-    await run(ffmpeg, ['-v', 'error', '-y', '-i', videoPath, '-vn', '-ac', '1', '-ar', '16000', '-codec:a', 'libmp3lame', '-q:a', '4', target]);
+    // Keep the sample rate; heavily downsampled low-bitrate mp3 made Whisper less stable in testing.
+    await run(ffmpeg, ['-v', 'error', '-y', '-i', videoPath, '-vn', '-ac', '1', '-codec:a', 'libmp3lame', '-b:a', '128k', target]);
   } catch (error) {
     if (error.code === 'ENOENT') return null;
     throw error;
