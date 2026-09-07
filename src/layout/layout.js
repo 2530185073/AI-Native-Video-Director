@@ -102,9 +102,16 @@ export function createLayout({ canvas = { width: 1080, height: 1920 }, person, f
         spec = { x, y: faceCenterY, width, aspect: '1:1', side: freeSide };
         break;
       }
-      case 'lower_card':
-        spec = { x: 0.5, y: clamp(subtitleY.lower_third - 0.17, 0.45, 0.62), width: 0.82, aspect: '16:9' };
+      case 'lower_card': {
+        // Fit a 16:9 card between the chin and the top of the subtitle line.
+        const bandTop = faceBox.y + faceBox.h + 0.02;
+        const bandBottom = subtitleY.lower_third - 0.045;
+        const maxHeight = (0.82 * size.width * 9 / 16) / size.height;
+        const heightFraction = clamp(bandBottom - bandTop, 0.12, maxHeight);
+        const width = (heightFraction * size.height * 16 / 9) / size.width;
+        spec = { x: 0.5, y: clamp(bandTop + heightFraction / 2, 0.45, 0.66), width, aspect: '16:9' };
         break;
+      }
       case 'card_top':
       default: {
         // Fit a 16:9 card into the headroom above the hair; if that leaves a postage stamp, go below.

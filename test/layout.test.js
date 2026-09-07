@@ -48,6 +48,11 @@ test('tight close-up framing: overlays adapt to the measured free space', () => 
   // 42%-wide side picture would cover the cheek: only ~24% is free on the right, so it moves under the chin.
   const pip = layout.broll('pip_side');
   assert.equal(pip.layout, 'lower_card');
+  const chin = layout.face.y + layout.face.h;
+  const pipTop = (0.5 - pip.transform_y_px / (2 * 1920)) - pip.heightPx / 1920 / 2;
+  const pipBottom = pipTop + pip.heightPx / 1920;
+  assert.ok(pipTop >= chin, `lower card top ${pipTop} must be below the chin ${chin}`);
+  assert.ok(pipBottom <= subtitle.yFraction - 0.04, `lower card bottom ${pipBottom} must clear the subtitle at ${subtitle.yFraction}`);
 
   // A top card has to fit into the 14.5% headroom, so it shrinks instead of sitting on the forehead.
   const card = layout.broll('card_top');

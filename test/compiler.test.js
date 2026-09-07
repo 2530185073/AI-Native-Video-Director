@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { bgmOps, compilePlan, summarizeOps, TRACKS } from '../src/vectcut/compiler.js';
+import { bgmOps, compilePlan, PUNCH_FLOOR_HOLD, PUNCH_MIN_HOLD, summarizeOps, TRACKS } from '../src/vectcut/compiler.js';
 import { linearToDb } from '../src/director/audio.js';
 import { executeOps, summarizeScript } from '../src/vectcut/executor.js';
 import { fixture, samplePlan, mockVectCut, mockImageProvider } from './helpers/fixture.js';
@@ -42,7 +42,15 @@ test('compilePlan emits draft → video → keyframes → subtitles → beats �
   assert.equal(punch.params.effect_effect_id, 'W0BpSlRRRldCZlhQTFpAaERcUw==');
   assert.equal(punch.params.loop_animation, '轻微跳动');
   assert.ok(punch.params.start >= chunks[1].start && punch.params.end >= chunks[1].end);
+  assert.ok(punch.params.end - punch.params.start >= PUNCH_MIN_HOLD - 0.01, 'punch stays long enough to be read');
   assert.ok(punch.params.transform_y_px > 0);
+
+  // Two punches on neighbouring lines: the first yields to the second instead of overlapping it.
+  const crowded = { ...plan, beats: [...plan.beats, { type: 'punch', chunkId: chunks[2].id, text: chunks[2].text.slice(0, 2), position: 'above_head', reason: 't' }] };
+  const punches = compilePlan({ plan: crowded, chunks, layout, inputs }).filter(op => op.op === 'add_text');
+  assert.equal(punches.length, 2);
+  assert.ok(punches[0].params.end <= punches[1].params.start, 'punches do not overlap');
+  assert.ok(punches[0].params.end - punches[0].params.start >= PUNCH_FLOOR_HOLD - 0.01);
 
   const zoom = ops.find(op => op.op === 'add_video_keyframe').params;
   assert.equal(zoom.track_name, TRACKS.video);

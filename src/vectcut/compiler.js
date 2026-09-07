@@ -131,12 +131,18 @@ function beatStart(beat, chunks) {
   return range ? range.start : null;
 }
 
-function compilePunch(beat, { chunks, layout, canvas, plan }) {
+export const PUNCH_MIN_HOLD = 1.4;
+export const PUNCH_FLOOR_HOLD = 0.8;
+
+function compilePunch(beat, { chunks, layout, canvas, plan, nextPunchStart = Infinity, videoEnd = Infinity }) {
   const chunk = chunks.find(entry => entry.id === beat.chunkId);
   if (!chunk) return null;
-  // Appear when the word is spoken, stay until the line ends (min 0.8s so the animation can play).
+  // Appear when the word is spoken; stay until the line ends but never less than PUNCH_MIN_HOLD
+  // (a sentence-final keyword would otherwise flash for a few hundred ms). Yield to the next punch.
   const start = beatStart(beat, chunks);
-  const end = Math.max(chunk.end, start + 0.8);
+  let end = Math.max(chunk.end, start + PUNCH_MIN_HOLD);
+  end = Math.min(end, nextPunchStart - 0.1, videoEnd);
+  end = Math.max(end, Math.min(start + PUNCH_FLOOR_HOLD, videoEnd));
   const placement = layout.punch(beat.position || 'above_head');
   const params = {
     text: beat.text,
@@ -416,9 +422,19 @@ export function compilePlan({
   ops.push(...compileSubtitles({ plan, chunks, layout, canvas }));
 
   const imageStylePrompt = imageStyle || `${plan.concept}。整体风格统一，画面中不要出现任何文字、水印、logo。`;
+  const punchStarts = plan.beats
+    .filter(beat => beat.type === 'punch')
+    .map(beat => beatStart(beat, chunks))
+    .filter(value => value != null)
+    .sort((a, b) => a - b);
+  const videoEnd = duration || Infinity;
   for (const beat of plan.beats) {
     let op = null;
-    if (beat.type === 'punch') op = compilePunch(beat, { chunks, layout, canvas, plan });
+    if (beat.type === 'punch') {
+      const start = beatStart(beat, chunks);
+      const nextPunchStart = punchStarts.find(value => value > start + 0.05) ?? Infinity;
+      op = compilePunch(beat, { chunks, layout, canvas, plan, nextPunchStart, videoEnd });
+    }
     else if (beat.type === 'broll') op = compileBroll(beat, { chunks, layout, canvas, limits, style: imageStylePrompt });
     else if (beat.type === 'effect') op = compileEffect(beat, { chunks, canvas, limits });
     if (op) ops.push(op);
