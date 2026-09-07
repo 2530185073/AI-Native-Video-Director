@@ -98,7 +98,9 @@ export class GeminiLLM {
     baseUrl = resolveGeminiBaseUrl(),
     model = process.env.LLM_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash',
     temperature = Number(process.env.LLM_TEMPERATURE ?? 0.7),
-    structuredMode = process.env.LLM_STRUCTURED_OUTPUT || 'json_schema',
+    // responseSchema + large flowerId/effect enums makes Gemini under-generate beats;
+    // native MIME json is enough — local validatePlan + repair loop enforce the shape.
+    structuredMode = process.env.LLM_STRUCTURED_OUTPUT || 'json_object',
     timeoutMs = 180000,
     fetchImpl = fetch
   } = {}) {

@@ -63,6 +63,7 @@ test('Gemini native provider calls generateContent with responseSchema', async (
     apiKey: 'sk-test',
     baseUrl: 'https://api.zyai.online/v1',
     model: 'gemini-3.8-flash',
+    structuredMode: 'json_schema',
     fetchImpl
   });
   const result = await llm.generateJson({
@@ -92,11 +93,23 @@ test('Gemini native provider falls back when responseSchema is rejected', async 
       candidates: [{ content: { parts: [{ text: '{"ok":true}' }] }, finishReason: 'STOP' }]
     });
   };
-  const llm = new GeminiLLM({ apiKey: 'sk-test', baseUrl: 'https://g.test/v1beta', model: 'm', fetchImpl });
+  const llm = new GeminiLLM({ apiKey: 'sk-test', baseUrl: 'https://g.test/v1beta', model: 'm', structuredMode: 'json_schema', fetchImpl });
   const result = await llm.generateJson({ user: 'u', schema: { type: 'object', properties: { ok: { type: 'boolean' } } } });
   assert.deepEqual(result.data, { ok: true });
   assert.equal(result.mode, 'json_object');
   assert.deepEqual(modes, ['schema', 'application/json']);
+});
+
+test('Gemini native defaults to json_object (avoids responseSchema under-generation)', async () => {
+  let mime;
+  const fetchImpl = async (_url, init) => {
+    mime = JSON.parse(init.body).generationConfig?.responseMimeType;
+    return jsonResponse(200, { candidates: [{ content: { parts: [{ text: '{"ok":true}' }] } }] });
+  };
+  const llm = new GeminiLLM({ apiKey: 'sk-test', baseUrl: 'https://g.test/v1beta', model: 'm', fetchImpl });
+  const result = await llm.generateJson({ user: 'u', schema: { type: 'object', properties: { ok: { type: 'boolean' } } } });
+  assert.equal(result.mode, 'json_object');
+  assert.equal(mime, 'application/json');
 });
 
 test('Gemini native provider uses x-goog-api-key for official AIza keys', async () => {
