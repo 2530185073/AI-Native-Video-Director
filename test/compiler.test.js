@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { bgmOps, compilePlan, PUNCH_FLOOR_HOLD, PUNCH_MIN_HOLD, summarizeOps, TRACKS } from '../src/vectcut/compiler.js';
+import { bgmOps, compilePlan, HOOK_PUNCH_LATEST, PUNCH_FLOOR_HOLD, PUNCH_MIN_HOLD, summarizeOps, TRACKS, ZOOM_RAMP_IN, ZOOM_RAMP_OUT } from '../src/vectcut/compiler.js';
 import { linearToDb } from '../src/director/audio.js';
 import { executeOps, summarizeScript } from '../src/vectcut/executor.js';
 import { fixture, samplePlan, mockVectCut, mockImageProvider } from './helpers/fixture.js';
@@ -67,6 +67,30 @@ test('compilePlan emits draft → video → keyframes → subtitles → beats �
   const effect = ops.find(op => op.op === 'add_effect');
   assert.equal(effect.optional, true);
   assert.ok(effect.params.end - effect.params.start <= 0.5 + 1e-9);
+});
+
+test('compilePlan treats a punch on the opening line as a title card and gives fullscreen pictures time to read', () => {
+  const { chunks, layout } = fixture();
+  const plan = samplePlan(chunks);
+  const hookWord = chunks[0].text.slice(-2);
+  plan.beats = [
+    { type: 'punch', chunkId: chunks[0].id, text: hookWord, flowerId: null, color: '#FFE14D', fontSize: 20, intro: '弹入', loop: null, position: 'above_head', outro: null, reason: 'hook' },
+    { type: 'broll', fromChunk: chunks[3].id, toChunk: chunks[3].id, prompt: '一枚银元特写照片，写实', layout: 'fullscreen', imageIntro: '渐显', outro: null, reason: 'short fullscreen' },
+    { type: 'zoom', fromChunk: chunks[5].id, toChunk: chunks[6].id, scale: 1.12, reason: 'push' }
+  ];
+  const ops = compilePlan({ plan, chunks, layout, inputs });
+
+  const punch = ops.find(op => op.op === 'add_text').params;
+  assert.ok(punch.start <= Math.min(chunks[0].start, HOOK_PUNCH_LATEST) + 1e-9, `hook punch at ${punch.start} should not wait for the word`);
+  assert.ok(punch.end >= chunks[0].end);
+
+  const broll = ops.find(op => op.op === 'broll_image').params;
+  assert.ok(broll.end - broll.start >= 2 - 1e-9, 'fullscreen cutaway lasts at least 2s');
+
+  const zoom = ops.find(op => op.op === 'add_video_keyframe').params;
+  const scaleTimes = zoom.times.filter((_, index) => zoom.property_types[index] === 'uniform_scale');
+  assert.ok(Math.abs((scaleTimes[1] - scaleTimes[0]) - ZOOM_RAMP_IN) < 0.011, 'fast push in');
+  assert.ok(Math.abs((scaleTimes[3] - scaleTimes[2]) - ZOOM_RAMP_OUT) < 0.011, 'slow release');
 });
 
 test('compilePlan lays the AI-chosen BGM under the whole video at 12% (converted to dB) and trims SFX to the beat', () => {

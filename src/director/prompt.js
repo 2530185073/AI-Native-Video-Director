@@ -1,6 +1,29 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 import { describeCatalog } from './catalog.js';
 
-export const DIRECTOR_SYSTEM_PROMPT = `你是一位短视频后期总监，专门给“数字人口播”做二次精剪，目标是让成片有抖音/视频号/小红书的网感。
+export const SKILL_PATH = resolve(dirname(fileURLToPath(import.meta.url)), '../../skills/talking-head-second-cut/SKILL.md');
+
+/**
+ * The director's system prompt is the SKILL.md knowledge pack, minus the YAML
+ * front-matter and the maintainer-only "来源" section. Keeping it as a Markdown
+ * file makes the editing doctrine reviewable and diffable on its own.
+ */
+export function loadDirectorSkill(path = SKILL_PATH) {
+  let text;
+  try {
+    text = readFileSync(path, 'utf8');
+  } catch {
+    return null;
+  }
+  text = text.replace(/^---[\s\S]*?---\s*/, '');
+  const sourcesAt = text.search(/^## \d+\. 来源/m);
+  if (sourcesAt >= 0) text = text.slice(0, sourcesAt);
+  return text.trim();
+}
+
+const LEGACY_SYSTEM_PROMPT = `你是一位短视频后期总监，专门给“数字人口播”做二次精剪，目标是让成片有抖音/视频号/小红书的网感。
 
 你拿到的素材已经是初版成片：数字人位置固定、气口已经剪掉、音画对齐。你不需要剪时间线，你要做的是导演层面的“包装决策”：
 - 哪些字幕里的词值得变色/放大（highlights）
@@ -30,6 +53,8 @@ export const DIRECTOR_SYSTEM_PROMPT = `你是一位短视频后期总监，专�
 - 每个 beat 的 reason 用一句话说明为什么这里值得这样处理。
 - 只输出 JSON，不要解释。`;
 
+export const DIRECTOR_SYSTEM_PROMPT = loadDirectorSkill() || LEGACY_SYSTEM_PROMPT;
+
 function formatChunks(chunks) {
   return chunks.map(chunk => `${chunk.id} | ${chunk.start.toFixed(2)}-${chunk.end.toFixed(2)} | ${chunk.text}`).join('\n');
 }
@@ -55,10 +80,31 @@ function describeLayout(layout) {
   return `画幅 ${layout.canvas.width}x${layout.canvas.height}。数字人脸部占画面高度的 ${top}%~${bottom}%，横向偏${layout.freeSide === 'right' ? '左' : '右'}，因此${layout.freeSide === 'right' ? '右' : '左'}侧留白更多。头顶上方约 ${top}% 的高度可以放 punch / 卡片；字幕放在脸部以下。`;
 }
 
+/**
+ * Turn the per-minute doctrine into concrete numbers for *this* video, and point at
+ * the "dead middle" (12-25s) where talking-head clips lose most viewers.
+ */
+export function rhythmBudget(duration, chunks = []) {
+  const seconds = Math.max(duration || chunks[chunks.length - 1]?.end || 0, 10);
+  const minutes = seconds / 60;
+  const range = (low, high) => `${Math.max(1, Math.round(low * minutes))}-${Math.max(1, Math.round(high * minutes))}`;
+  const middle = chunks.filter(chunk => chunk.end > 12 && chunk.start < Math.min(25, seconds - 3)).map(chunk => chunk.id);
+  const lines = [
+    `punch 约 ${range(4, 8)} 个，zoom 约 ${range(3, 6)} 次，broll 约 ${range(2, 5)} 张（总时长占 20-30%），effect 0-${Math.max(1, Math.round(2 * minutes))} 个，sfx 不超过 ${Math.max(2, Math.round(8 * minutes))} 个。`,
+    `hook：片段 ${chunks[0]?.id ?? 1} 应有 punch（系统会把它提前到第一帧）；前 3 秒不要 fullscreen broll。`
+  ];
+  if (middle.length) lines.push(`死中段（12-25 秒）：片段 ${middle[0]}-${middle[middle.length - 1]}，这里至少要有一次 broll 或 zoom。`);
+  lines.push('相邻 beat 尽量不同类型；连续 8 秒以上没有任何画面变化的段落，系统会自动补一个 1.08 的轻推。');
+  return lines.join('\n');
+}
+
 export function buildDirectorUserPrompt({ script, chunks, brief, duration, layout, catalog, schema }) {
   return `## 视频信息
 时长：${(duration || chunks[chunks.length - 1]?.end || 0).toFixed(1)} 秒，共 ${chunks.length} 个字幕片段。
 ${describeLayout(layout)}
+
+## 这条视频的节奏预算（参考值，最终由内容决定）
+${rhythmBudget(duration, chunks)}
 
 ## 需求简报
 ${formatBrief(brief)}

@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildPlanSchema, validatePlan } from '../src/director/schema.js';
-import { lintPlan } from '../src/director/lint.js';
+import { DEFAULT_LIMITS, lintPlan, STATIC_FILL_REASON } from '../src/director/lint.js';
 import { createEditingPlan, normalizePlan } from '../src/director/planner.js';
+import { chunkRange } from '../src/timeline/chunker.js';
+import { DIRECTOR_SYSTEM_PROMPT, loadDirectorSkill, rhythmBudget } from '../src/director/prompt.js';
 import { simplifySchema, extractJson } from '../src/providers/llm/openai-compatible.js';
 import { fixture, samplePlan, mockLLM } from './helpers/fixture.js';
 
@@ -81,7 +83,7 @@ test('lint keeps sound effects sparse: no two within a breath, capped per minute
   const plan = samplePlan(chunks);
   plan.beats = [
     { type: 'punch', chunkId: 1, text: chunks[0].text.slice(0, 2), flowerId: null, color: '#FFE14D', fontSize: 18, intro: '弹入', loop: null, position: 'above_head', outro: null, sfx: 'pop', reason: 'a' },
-    { type: 'zoom', fromChunk: 1, toChunk: 2, scale: 1.1, sfx: 'whoosh', reason: 'same instant as the punch' },
+    { type: 'zoom', fromChunk: 1, toChunk: 2, scale: 1.1, sfx: 'whoosh_soft', reason: 'same instant as the punch' },
     { type: 'broll', fromChunk: 3, toChunk: 3, prompt: '一枚银元特写照片，写实', layout: 'card_top', imageIntro: '放大', outro: null, sfx: 'whoosh', reason: 'b' },
     { type: 'punch', chunkId: 5, text: chunks[4].text.slice(0, 2), flowerId: null, color: '#FFE14D', fontSize: 18, intro: '弹入', loop: null, position: 'above_head', outro: null, sfx: 'pop', reason: 'c' },
     { type: 'zoom', fromChunk: 7, toChunk: 7, scale: 1.1, sfx: 'whoosh', reason: 'd' },
@@ -92,9 +94,73 @@ test('lint keeps sound effects sparse: no two within a breath, capped per minute
   const zoom = linted.beats.find(beat => beat.type === 'zoom' && beat.fromChunk === 1);
   assert.equal(zoom.sfx, null, 'second sfx at the same instant is dropped');
   assert.ok(warnings.some(warning => warning.includes('within 0.7s')));
+  // Sound grammar: a whoosh belongs to pictures and pushes, not to a bare zoom → dropped.
+  const laterZoom = linted.beats.find(beat => beat.type === 'zoom' && beat.fromChunk === 7);
+  assert.equal(laterZoom.sfx, null);
+  assert.ok(warnings.some(warning => warning.includes('does not fit a zoom beat')));
   const withSfx = linted.beats.filter(beat => beat.sfx);
   assert.ok(withSfx.length <= 3, `expected ≤3 sfx for a 22s video, got ${withSfx.length}`);
   assert.ok(warnings.some(warning => warning.startsWith('sfx:')));
+});
+
+test('director system prompt is the SKILL.md knowledge pack without front-matter or source notes', () => {
+  const skill = loadDirectorSkill();
+  assert.ok(skill && skill.length > 1000);
+  assert.equal(DIRECTOR_SYSTEM_PROMPT, skill);
+  assert.ok(!skill.startsWith('---'), 'front-matter stripped');
+  assert.ok(!/来源与依据/.test(skill), 'maintainer notes stripped');
+  assert.ok(skill.includes('前 3 秒不放全屏 B-roll'));
+  assert.ok(skill.includes('只输出 JSON'));
+  assert.equal(loadDirectorSkill('/nonexistent/SKILL.md'), null);
+
+  const { chunks, duration } = fixture();
+  const budget = rhythmBudget(duration, chunks);
+  assert.match(budget, /punch 约 \d+-\d+ 个/);
+  assert.ok(budget.includes(`片段 ${chunks[0].id} 应有 punch`));
+  assert.ok(budget.includes('死中段'), '22s clip still has a 12-19s middle');
+});
+
+test('lint applies the editing doctrine: hook stays on the face, zooms breathe, static stretches get a gentle push', () => {
+  const { chunks, layout, duration } = fixture();
+  const plan = samplePlan(chunks);
+  const last = chunks[chunks.length - 1];
+  plan.beats = [
+    // Fullscreen cutaway inside the 3s hook → downgraded, never dropped.
+    { type: 'broll', fromChunk: 1, toChunk: 2, prompt: '一枚银元特写照片，写实', layout: 'fullscreen', imageIntro: '放大', outro: null, sfx: 'ding', reason: 'hook picture' },
+    // A zoom shorter than 2s is stretched over the next line instead of flashing.
+    { type: 'zoom', fromChunk: 3, toChunk: 3, scale: 1.12, sfx: null, reason: 'short' },
+    // Starts right after the previous zoom ends → habituation, dropped.
+    { type: 'zoom', fromChunk: 5, toChunk: 5, scale: 1.12, sfx: null, reason: 'back to back' },
+    // Two punches on one line → only the first survives.
+    { type: 'punch', chunkId: 4, text: chunks[3].text.slice(0, 2), flowerId: null, color: '#FFE14D', fontSize: 18, intro: '弹入', loop: null, position: 'above_head', outro: null, sfx: 'whoosh', reason: 'first big word' },
+    { type: 'punch', chunkId: 4, text: chunks[3].text.slice(1, 3), flowerId: null, color: '#FFE14D', fontSize: 18, intro: '弹入', loop: null, position: 'above_head', outro: null, sfx: null, reason: 'second big word' }
+  ];
+  const { plan: linted, warnings } = lintPlan(plan, { chunks, layout, duration });
+
+  const broll = linted.beats.find(beat => beat.type === 'broll');
+  assert.equal(broll.layout, 'card_top');
+  assert.equal(broll.sfx, 'whoosh', 'a ding on a picture is re-voiced as a whoosh');
+  assert.ok(warnings.some(warning => warning.includes('hook')));
+
+  const zooms = linted.beats.filter(beat => beat.type === 'zoom' && beat.reason !== STATIC_FILL_REASON);
+  assert.equal(zooms.length, 1, 'back-to-back zoom dropped');
+  assert.ok(zooms[0].toChunk > 3, 'short zoom extended');
+  const zoomRange = chunkRange(chunks, zooms[0].fromChunk, zooms[0].toChunk);
+  assert.ok(zoomRange.end - zoomRange.start >= DEFAULT_LIMITS.minZoomSeconds);
+
+  const punches = linted.beats.filter(beat => beat.type === 'punch');
+  assert.equal(punches.length, 1);
+  assert.equal(punches[0].sfx, 'pop', 'a whoosh on a word becomes a pop');
+
+  // The tail of the clip (after chunk 5) has nothing on screen for > 8s → one gentle fill zoom.
+  const fills = linted.beats.filter(beat => beat.reason === STATIC_FILL_REASON);
+  assert.ok(fills.length >= 1, 'static stretch filled');
+  for (const fill of fills) {
+    assert.equal(fill.scale, DEFAULT_LIMITS.staticFillScale);
+    assert.ok(fill.fromChunk >= 6 && fill.toChunk <= last.id);
+  }
+  assert.ok(warnings.some(warning => warning.includes('no visual change')));
+  assert.equal(validatePlan(linted, { chunks }).length, 0, 'linted plan is still schema-valid (--from-plan round trip)');
 });
 
 test('schema simplification keeps structure and drops validation-only keywords', () => {

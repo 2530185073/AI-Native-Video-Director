@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createLayout } from '../src/layout/layout.js';
+import { createLayout, SAFE_ZONE } from '../src/layout/layout.js';
 import { computeImageScale } from '../src/vectcut/scale.js';
 
 test('layout converts semantic placements into centre-origin pixels', () => {
@@ -54,17 +54,38 @@ test('tight close-up framing: overlays adapt to the measured free space', () => 
   assert.ok(pipTop >= chin, `lower card top ${pipTop} must be below the chin ${chin}`);
   assert.ok(pipBottom <= subtitle.yFraction - 0.04, `lower card bottom ${pipBottom} must clear the subtitle at ${subtitle.yFraction}`);
 
-  // A top card has to fit into the 14.5% headroom, so it shrinks instead of sitting on the forehead.
+  // Between the top UI band (~6%) and a hairline at 14.5% there is no room for a readable
+  // 16:9 card, so a top card also moves under the chin instead of sitting on the forehead.
   const card = layout.broll('card_top');
-  assert.equal(card.layout, 'card_top');
-  const cardBottom = (0.5 - card.transform_y_px / (2 * 1920)) + card.heightPx / 1920 / 2;
-  assert.ok(cardBottom <= layout.face.y + 0.001, `card bottom ${cardBottom} overlaps face top ${layout.face.y}`);
-  assert.ok(card.widthPx >= 0.34 * 1080);
+  assert.equal(card.layout, 'lower_card');
+  const cardTop = (0.5 - card.transform_y_px / (2 * 1920)) - card.heightPx / 1920 / 2;
+  assert.ok(cardTop >= chin, `card top ${cardTop} must be below the chin ${chin}`);
 
   // Roomier framing keeps the wide card and the side picture.
   const roomy = createLayout({ person: { x: 0.2, y: 0.2, w: 0.6, h: 0.8 }, face: { x: 0.36, y: 0.2, w: 0.28, h: 0.2 } });
   assert.equal(roomy.broll('pip_side').layout, 'pip_side');
-  assert.ok(roomy.broll('card_top').widthPx > 500);
+  const roomyCard = roomy.broll('card_top');
+  assert.equal(roomyCard.layout, 'card_top');
+  assert.ok(roomyCard.widthPx >= 0.34 * 1080);
+  const roomyCardTop = (0.5 - roomyCard.transform_y_px / (2 * 1920)) - roomyCard.heightPx / 1920 / 2;
+  assert.ok(roomyCardTop >= SAFE_ZONE.top - 0.001, `card top ${roomyCardTop} must clear the top UI band`);
+});
+
+test('overlays respect the platform UI safe zones', () => {
+  const layout = createLayout({});
+  const bottom = layout.subtitle('bottom');
+  assert.ok(bottom.yFraction + 0.03 <= 1 - SAFE_ZONE.bottom, `subtitle at ${bottom.yFraction} would sit under the caption/author UI`);
+  assert.ok(layout.subtitle('lower_third').yFraction <= bottom.yFraction);
+
+  const top = layout.punch('top');
+  assert.ok(0.5 - top.transform_y_px / (2 * 1920) - 0.03 >= SAFE_ZONE.top - 0.001, 'top punch clears the tab row');
+
+  // Presenter framed left → picture-in-picture on the right must clear the like/comment rail.
+  const leftFramed = createLayout({ person: { x: 0.02, y: 0.18, w: 0.5, h: 0.82 }, face: { x: 0.12, y: 0.2, w: 0.28, h: 0.2 } });
+  const pip = leftFramed.broll('pip_side');
+  assert.equal(pip.layout, 'pip_side');
+  const pipRight = 0.5 + pip.transform_x_px / (2 * 1080) + pip.widthPx / 1080 / 2;
+  assert.ok(pipRight <= 1 - SAFE_ZONE.right + 0.001, `pip right edge ${pipRight} is under the interaction rail`);
 });
 
 test('zoom anchor keeps the face in place while scaling', () => {

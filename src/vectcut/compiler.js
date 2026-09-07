@@ -119,13 +119,22 @@ function compileSubtitles({ plan, chunks, layout, canvas }) {
   return [{ op: 'add_batch_text', params: batch, fallback, note: `${items.length} subtitle lines` }];
 }
 
-/** The moment a beat becomes visible; punches snap to the spoken word, ranges to their first chunk. */
+/** A hook title must be on screen before the thumb reaches the scroll button. */
+export const HOOK_PUNCH_LATEST = 1.0;
+
+/**
+ * The moment a beat becomes visible; punches snap to the spoken word, ranges to their
+ * first chunk. A punch on the opening line behaves like a title card: it appears with
+ * the first frame instead of waiting for the word, so the hook reads at scroll speed.
+ */
 function beatStart(beat, chunks) {
   if (beat.type === 'punch') {
     const chunk = chunks.find(entry => entry.id === beat.chunkId);
     if (!chunk) return null;
     const timing = phraseTiming(chunk, beat.text);
-    return timing.exact ? timing.start : chunk.start;
+    const spoken = timing.exact ? timing.start : chunk.start;
+    if (chunk === chunks[0]) return Math.max(0, Math.min(spoken, chunk.start, HOOK_PUNCH_LATEST));
+    return spoken;
   }
   const range = chunkRange(chunks, beat.fromChunk, beat.toChunk);
   return range ? range.start : null;
@@ -133,6 +142,8 @@ function beatStart(beat, chunks) {
 
 export const PUNCH_MIN_HOLD = 1.4;
 export const PUNCH_FLOOR_HOLD = 0.8;
+export const ZOOM_RAMP_IN = 0.25;
+export const ZOOM_RAMP_OUT = 0.6;
 
 function compilePunch(beat, { chunks, layout, canvas, plan, nextPunchStart = Infinity, videoEnd = Infinity }) {
   const chunk = chunks.find(entry => entry.id === beat.chunkId);
@@ -189,7 +200,9 @@ function compileZooms(beats, { chunks, layout, limits }) {
   const times = [];
   const values = [];
   const push = (type, time, value) => { propertyTypes.push(type); times.push(round2(time)); values.push(String(value)); };
-  const ramp = 0.35;
+  // Push in quickly so it lands on the word like a beat; drift back slowly so the release is invisible.
+  const rampIn = ZOOM_RAMP_IN;
+  const rampOut = ZOOM_RAMP_OUT;
 
   let cursor = -1;
   for (const beat of zooms) {
@@ -197,17 +210,17 @@ function compileZooms(beats, { chunks, layout, limits }) {
     if (!range) continue;
     const start = Math.max(range.start, cursor + 0.05);
     const end = Math.min(range.end, start + limits.maxZoomSeconds);
-    if (end - start < ramp * 2 + 0.2) continue;
+    if (end - start < rampIn + rampOut + 0.2) continue;
     const scale = beat.scale;
     const anchor = layout.zoomAnchor(scale);
     push('uniform_scale', start, '1.0');
-    push('uniform_scale', start + ramp, scale.toFixed(3));
-    push('uniform_scale', end - ramp, scale.toFixed(3));
+    push('uniform_scale', start + rampIn, scale.toFixed(3));
+    push('uniform_scale', end - rampOut, scale.toFixed(3));
     push('uniform_scale', end, '1.0');
     for (const axis of ['position_x_px', 'position_y_px']) {
       push(axis, start, '0');
-      push(axis, start + ramp, anchor[axis]);
-      push(axis, end - ramp, anchor[axis]);
+      push(axis, start + rampIn, anchor[axis]);
+      push(axis, end - rampOut, anchor[axis]);
       push(axis, end, '0');
     }
     cursor = end;
@@ -223,11 +236,12 @@ function compileZooms(beats, { chunks, layout, limits }) {
 function compileBroll(beat, { chunks, layout, canvas, limits, style }) {
   const range = chunkRange(chunks, beat.fromChunk, beat.toChunk);
   if (!range) return null;
-  let start = range.start;
-  let end = Math.max(range.end, start + limits.minBrollSeconds);
-  if (end - start > limits.maxBrollSeconds) end = start + limits.maxBrollSeconds;
   const placement = layout.broll(beat.layout || 'card_top');
   const fullscreen = placement.layout === 'fullscreen';
+  const minSeconds = fullscreen ? Math.max(limits.minBrollSeconds, limits.minFullscreenSeconds || 0) : limits.minBrollSeconds;
+  let start = range.start;
+  let end = Math.max(range.end, start + minSeconds);
+  if (end - start > limits.maxBrollSeconds) end = start + limits.maxBrollSeconds;
   return {
     op: 'broll_image',
     prompt: beat.prompt,

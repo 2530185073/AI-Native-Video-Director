@@ -13,6 +13,13 @@ const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 export const DEFAULT_PERSON_BOX = { x: 0.18, y: 0.18, w: 0.64, h: 0.82 };
 export const DEFAULT_FACE_BOX = { x: 0.34, y: 0.20, w: 0.32, h: 0.22 };
 
+/**
+ * Platform UI that covers the frame on 抖音 / 视频号 / Reels (fractions of a 1080×1920 canvas):
+ * ~115px of status bar + tab row at the top, ~300px of caption/author/music at the
+ * bottom, the like/comment/share rail ~120px wide on the right. Overlays stay inside.
+ */
+export const SAFE_ZONE = { top: 0.06, bottom: 0.16, right: 0.115, left: 0.05 };
+
 function normalizeBox(box, fallback) {
   if (!box) return { ...fallback };
   const x = Number(box.x ?? box.left ?? fallback.x);
@@ -55,10 +62,12 @@ export function createLayout({ canvas = { width: 1080, height: 1920 }, person, f
     transform_y_px: Math.round((0.5 - yFraction) * size.height * PX_UNIT)
   });
 
+  // Lowest centre line that keeps a ~4%-tall subtitle clear of the bottom UI band.
+  const lowestSubtitleY = 1 - SAFE_ZONE.bottom - 0.03;
   const subtitleY = {
-    lower_third: clamp(Math.max(faceBox.y + faceBox.h + 0.22, 0.70), 0.62, 0.80),
+    lower_third: clamp(Math.max(faceBox.y + faceBox.h + 0.22, 0.70), 0.62, Math.min(0.80, lowestSubtitleY)),
     center_low: clamp(Math.max(faceBox.y + faceBox.h + 0.12, 0.60), 0.55, 0.70),
-    bottom: 0.86
+    bottom: lowestSubtitleY
   };
 
   function subtitle(position = 'lower_third') {
@@ -78,10 +87,10 @@ export function createLayout({ canvas = { width: 1080, height: 1920 }, person, f
       case 'center':
         return { ...toPx(0.5, 0.48), fixed_width: 0.55 };
       case 'top':
-        return { ...toPx(0.5, 0.10), fixed_width: 0.55 };
+        return { ...toPx(0.5, SAFE_ZONE.top + 0.035), fixed_width: 0.55 };
       case 'above_head':
       default:
-        return { ...toPx(0.5, clamp(headroom / 2, 0.08, 0.30)), fixed_width: 0.55 };
+        return { ...toPx(0.5, clamp(headroom / 2, SAFE_ZONE.top + 0.03, 0.30)), fixed_width: 0.55 };
     }
   }
 
@@ -94,11 +103,14 @@ export function createLayout({ canvas = { width: 1080, height: 1920 }, person, f
         spec = { x: 0.5, y: 0.5, width: 1, aspect: '9:16', coversPerson: true };
         break;
       case 'pip_side': {
-        // Room between the face and the frame edge on the free side, minus a safe margin.
-        const room = (freeSide === 'right' ? 1 - (faceBox.x + faceBox.w) : faceBox.x) - 0.04;
-        if (room < 0.26) return broll('lower_card');
-        const width = Math.min(0.42, room - 0.02);
-        const x = freeSide === 'right' ? 1 - 0.03 - width / 2 : 0.03 + width / 2;
+        // Room between the face and the platform UI rail on the free side (the right-hand
+        // like/comment column is much wider than the left margin).
+        const edgeMargin = freeSide === 'right' ? SAFE_ZONE.right : SAFE_ZONE.left;
+        const room = (freeSide === 'right' ? 1 - (faceBox.x + faceBox.w) : faceBox.x) - edgeMargin - 0.02;
+        // Below ~20% of the width (216px) a reference picture is a thumbnail nobody can read.
+        if (room < 0.2) return broll('lower_card');
+        const width = Math.min(0.42, room);
+        const x = freeSide === 'right' ? 1 - edgeMargin - width / 2 : edgeMargin + width / 2;
         spec = { x, y: faceCenterY, width, aspect: '1:1', side: freeSide };
         break;
       }
@@ -114,13 +126,14 @@ export function createLayout({ canvas = { width: 1080, height: 1920 }, person, f
       }
       case 'card_top':
       default: {
-        // Fit a 16:9 card into the headroom above the hair; if that leaves a postage stamp, go below.
-        const available = faceBox.y - 0.03;
+        // Fit a 16:9 card between the top UI band and the hairline; if that leaves a postage stamp, go below.
+        const top = SAFE_ZONE.top;
+        const available = faceBox.y - top - 0.015;
         const maxWidth = 0.82;
         const heightFraction = Math.min(available, (maxWidth * size.width * 9 / 16) / size.height);
         const width = (heightFraction * size.height * 16 / 9) / size.width;
         if (width < 0.34) return broll('lower_card');
-        spec = { x: 0.5, y: 0.02 + heightFraction / 2, width, aspect: '16:9' };
+        spec = { x: 0.5, y: top + heightFraction / 2, width, aspect: '16:9' };
       }
     }
     const widthPx = Math.round(spec.width * size.width);
