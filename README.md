@@ -51,13 +51,41 @@
 支持：
 
 - Groq Whisper
-- 字级时间戳
+- 词级时间戳
+- 参考文案字符级对齐
+- 长停顿（气口）压缩与时间轴重映射
 
 用于：
 
 - 精确字幕同步
 - 停顿分析
 - 节奏判断
+
+ASR 模块已实现于 `src/asr/`，主流程为：
+
+```text
+Groq Whisper verbose_json + word timestamps
+    -> 参考文案按标点切句
+    -> 字符级 Levenshtein 对齐
+    -> 生成句子级 SRT
+    -> 根据词间停顿剪气口
+    -> 重映射字幕/视频/音乐时间轴
+```
+
+基本调用方式：
+
+```js
+import { processAsrSubtitles } from './src/asr/index.js';
+
+const result = await processAsrSubtitles({
+  audioUrl: 'https://example.com/talking-head.mp4',
+  referenceText: '这是人工校对后的口播文案。',
+  language: 'zh'
+});
+
+// result.pipelineSrt 是去气口后用于剪辑的 SRT
+// result.debreath.timeline 可直接转换为 VectCut 的分段 add_video 操作
+```
 
 ### Editing Engine
 
@@ -103,7 +131,7 @@ Draft -> Review -> Render
 
 - [x] 项目初始化
 - [ ] 多 LLM Provider Adapter
-- [ ] ASR Pipeline
+- [x] ASR Pipeline
 - [ ] 剪辑决策 Schema
 - [ ] VectCut SDK Adapter
 - [ ] 自动审片 Agent
