@@ -12,7 +12,7 @@
 初版 mp4（数字人成片，气口已剪，人物位置固定）
 文案对应 mp3（可选，做 ASR 更干净）
 原始文案
-逐字对照接口 / 逐字时间戳（可选，没有就用 Groq Whisper 兜底）
+逐字对照（默认用 VectCut 识别字幕的“文案对齐 sta 模式”，也可接你自己的接口 / 直接传时间戳）
 数字人在画面中的位置框（可选，有默认值）
         │
         ▼
@@ -21,7 +21,7 @@
  ③ AI 导演决策       Gemini/OpenAI-compatible 结构化输出 → Editing Plan JSON
  ④ 规则审片 lint     高亮必须在字幕里、不遮脸、每分钟密度上限、B-roll 不重叠……
  ⑤ 编译             Plan → VectCut 操作序列（纯函数，可 dry-run 审阅）
- ⑥ 执行             建草稿 / 主视频 / 关键帧推镜 / 批量字幕 / 花字 / 生图 B-roll / 特效 / query_script 校验
+ ⑥ 执行             建草稿 / 主视频 / BGM 铺满 / 关键帧推镜 / 批量字幕 / 花字 / 生图 B-roll / 特效 / 音效 / query_script 校验
  ⑦ 云渲染（可选）    generate_video → task_status → mp4
         │
         ▼
@@ -40,17 +40,21 @@
 | 镜头轻推强调（1.08-1.2，2-5 秒回落） | `uniform_scale` + `position_*_px` 关键帧，锁定脸部不跑偏 | `add_video_keyframe` |
 | B-roll 补画面（商品/场景/对比/数据） | AI 写生图 prompt → 生图 → 全屏 / 头顶卡片 / 脸侧画中画 / 字幕上横卡 | 生图聚合接口 + `add_image` |
 | 场景特效（转折色差故障、开场模糊、电影画幅…） | 极低频、短时长 | `add_effect` |
+| 音效（pop / ding / whoosh / click / error / success） | 挂在 beat 上，在花字弹出、全屏图切入、金句的瞬间响一下；自动裁到最有力的 0.4-0.9 秒，双轨避免撞车 | `add_audio` |
+| 背景音乐选曲（Lo-Fi / 软垫乐 / 轻快口播 / 不加） | 按内容气质选，全片 12% 音量铺满（短曲自动循环、首尾淡入淡出） | `add_audio` |
 | 什么都不做 | `hide` 片段 / 不给 beat | — |
 
-所有效果名与花字 ID 都来自一份**云渲染可用**的词表（`src/director/catalog.js`），AI 只能从中选，避免渲染时静默丢效果。
+所有效果名与花字 ID 都来自一份**云渲染可用**的词表（`src/director/catalog.js`），AI 只能从中选，避免渲染时静默丢效果。音效/音乐素材在 `src/director/audio.js`，可换成自己的授权素材。
+
+> 注意：VectCut `add_audio` 的 `volume` 是 **dB** 不是线性值（传 `0.12` 等于 +0.12 dB ≈ 原音量）。本项目配置一律用直观的线性值（`BGM_VOLUME=0.12`），编译器内部换算成 `-18.42 dB`，`query_script` 里可以看到草稿实际 `volume: 0.12`。
 
 ---
 
 ## 快速开始
 
 ```bash
-cp .env.example .env   # 填 LLM_API_KEY / VECTCUT_API_KEY（其余可选）
-npm test               # 31 个单测 + mock 端到端
+cp .env.example .env   # 填 LLM_API_KEY / VECTCUT_API_KEY（其余可选；ASR 默认就走 VectCut）
+npm test               # 36 个单测 + mock 端到端
 
 # 只出方案不花钱：dry-run 生成 plan.json + ops.json
 node src/cli.js \
@@ -63,6 +67,10 @@ node src/cli.js \
 
 # 正式生成草稿（并云渲染）
 node src/cli.js --video ... --audio ... --script ./script.txt --render
+
+# 固定一首 BGM / 关掉 BGM / 调音量（线性值）
+node src/cli.js ... --bgm https://assets.mixkit.co/music/764/764.mp3 --bgm-volume 0.12 --sfx-volume 0.5
+node src/cli.js ... --bgm none
 ```
 
 `--from-plan plan.json` 可以跳过 LLM，用人工审过/改过的方案直接出草稿；`--words words.json` 传入你自己的逐字时间戳（任意常见格式，宽松解析）。
@@ -102,10 +110,11 @@ AI 不写秒数，只引用字幕片段 id；时间由代码从对齐结果解�
 {
   "concept": "知识类口播：白字黑边+黄色高亮，克制推镜，讲到实物时全屏图",
   "tone": "authoritative",
+  "bgm": { "track": "lofi_clean", "reason": "知识类内容，干净的 Lo-Fi 不抢戏" },
   "subtitleStyle": { "font": "SourceHanSansCN_Bold", "fontSize": 10, "color": "#FFFFFF", "strokeColor": "#000000", "strokeWidth": 20, "highlightColor": "#FFE14D", "highlightScale": 1.25, "position": "lower_third", "intro": null },
   "chunks": [ { "id": 2, "highlights": ["一万"] }, { "id": 7, "highlights": ["26.8克"] } ],
   "beats": [
-    { "type": "punch", "chunkId": 2, "text": "一万块", "flowerId": "W0BpSlRRRldCZlhQTFpAaERcUw==", "fontSize": 20, "intro": "弹入", "loop": "轻微跳动", "position": "above_head", "reason": "价格是 hook" },
+    { "type": "punch", "chunkId": 2, "text": "一万块", "flowerId": "W0BpSlRRRldCZlhQTFpAaERcUw==", "fontSize": 20, "intro": "弹入", "loop": "轻微跳动", "position": "above_head", "sfx": "ding", "reason": "价格是 hook" },
     { "type": "zoom", "fromChunk": 3, "toChunk": 4, "scale": 1.12, "reason": "结论句强调" },
     { "type": "broll", "fromChunk": 7, "toChunk": 7, "prompt": "一枚民国袁大头银元放在电子秤上，特写，柔和侧光，写实摄影，画面中没有文字", "layout": "fullscreen", "imageIntro": "渐显", "reason": "讲到具体重量，需要看到实物" },
     { "type": "effect", "fromChunk": 12, "toChunk": 12, "name": "色差故障", "reason": "结尾反转" }
@@ -119,10 +128,10 @@ AI 不写秒数，只引用字幕片段 id；时间由代码从对齐结果解�
 
 ```
 src/
-  asr/            Groq Whisper、外部逐字对照适配、字符级对齐、（可选）去气口
+  asr/            VectCut 文案对齐 ASR、外部逐字对照适配、Groq Whisper、字符级对齐、（可选）去气口
   timeline/       任意 ASR 输出归一化、短句切片器
   layout/         人物框 → VectCut 中心坐标系像素位置、推镜锚点
-  director/       效果词表、Plan schema、系统 prompt、planner（校验+修复循环）、lint
+  director/       效果词表、音效/BGM 素材库、Plan schema、系统 prompt、planner（校验+修复循环）、lint
   providers/      llm/openai-compatible（默认 Gemini）、image（VectCut 聚合 / OpenAI-compatible）
   vectcut/        真实 API 客户端、Plan→操作编译器、执行器（fallback/dry-run）、缩放换算
   pipeline.js     编排
@@ -144,7 +153,8 @@ docs/             architecture.md（模块细节）、inputs.md（输入清单�
 ## 路线
 
 - [x] 数字人口播二次精剪 MVP（本仓库）
+- [x] 音效层：AI 在 punch/broll/effect 上挂音效，BGM 选曲 + 12% 铺满
+- [x] 逐字对照：VectCut 识别字幕 sta 模式（真实接口跑通，27s 口播 156 字 100% 对齐）
 - [ ] 视觉审片：渲染后抽帧给多模态模型，检查遮挡/可读性/风格一致
-- [ ] 音效层：VectCut 素材库 whoosh/ding 与 punch/zoom 联动
 - [ ] 字在人后（`submit_remove_bg_text_behind_task`）作为 opening hook 选项
 - [ ] 多条成片的风格记忆（同账号统一色系与花字）

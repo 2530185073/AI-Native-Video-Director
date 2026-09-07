@@ -7,10 +7,18 @@
 | 初版 mp4（公网 URL） | 主轨视频 | `--video` / `videoUrl` |
 | 文案对应 mp3（公网 URL） | ASR/对齐用音频（比从 mp4 提取更干净） | `--audio` / `audioUrl`；不传则用 mp4 |
 | 原始文案 | 字幕文本源、AI 理解内容的依据 | `--script` / `script` |
-| 逐字对照接口 | 把文案按时间戳对上音频 | `.env` 里 `ASR_ALIGN_URL` + 字段名映射；或直接 `--words` 传结果文件 |
-| VectCut API Key | 草稿/生图/渲染 | `VECTCUT_API_KEY` |
+| 逐字对照 | 把文案按时间戳对上音频 | **默认不用额外配**：有 `VECTCUT_API_KEY` 就走 VectCut「识别字幕」的 sta 模式（把文案作为 `content` 传入，返回每个字的毫秒时间戳，约 3 积分/条）。也可用 `ASR_ALIGN_URL` 接你自己的接口，或 `--words` 直接传结果文件 |
+| VectCut API Key | 草稿/ASR 对齐/生图/渲染 | `VECTCUT_API_KEY` |
 | 图片生成接口 | B-roll | `IMAGE_PROVIDER=vectcut`（默认，用 VectCut 聚合，无需上传）或 `openai-compatible`（Gemini/Imagen/自建网关） |
-| Gemini Key | AI 导演 | `LLM_API_KEY`（OpenAI-compatible 端点，可换任何模型） |
+| Gemini Key | AI 导演 | `LLM_API_KEY`（OpenAI-compatible 端点，可换任何模型；中转站填 `LLM_BASE_URL=https://xxx/v1`） |
+| 音效 / 背景音乐 | 声音设计 | 已内置在 `src/director/audio.js`（7 条 UI 音效 + 3 首垫乐，公网直链、时长已核验）。换素材改这个文件，或 `--bgm URL` 强制指定 |
+
+### 音效与 BGM 的实际参数
+
+- BGM 默认 `BGM_VOLUME=0.12`（线性 12%）。VectCut `add_audio.volume` 单位是 **dB**，程序自动换算成 `-18.42`；真实草稿 `query_script` 里 `volume: 0.120`。
+- 音效默认 `SFX_VOLUME=0.55` × 素材 gain（约 -8 dB），每条裁到 0.4-0.9 秒，分两条轨道 `audio_sfx_1/2` 放置避免同轨重叠。
+- BGM 短于视频时首尾相接循环铺满，第一段淡入 0.8s、最后一段淡出 1.2s；`--bgm none` 关闭。
+- 自定义 `--bgm URL` 时会先 `get_duration` 拿时长再铺，`inputs.bgmDuration` 可省这一步。
 
 ### 逐字对照接口的返回格式
 
@@ -24,8 +32,7 @@
 
 ## 现在做不到 / 需要你确认的
 
-- **音效（whoosh/ding）**：VectCut 有 `add_audio` 但没有内置音效库检索接口；需要你提供一组音效 URL（素材库链接），下一步可以让 AI 在 punch/zoom 处挂音效。
-- **背景音乐**：`--bgm URL` 已支持（-18dB、淡入淡出），但选曲需要你给 URL。
+- **音效/音乐版权**：内置直链来自 tryelements.dev 与 Mixkit（可商用）以及剪映曲库的一条公开链接；上线前建议镜像到自己的 OSS，避免外链失效。
 - **场景特效是否云渲染可用**：`get_video_scene_effect_types` 没标 `cloud_render_supported`，词表里只放了 8 个低风险特效，并且执行失败会跳过不阻塞。第一次跑建议看 `query_script` 校验和渲染结果，不行就把 `SCENE_EFFECTS` 清空。
 - **字号手感**：VectCut 字号是剪映字号（默认 8）。词表建议字幕 9-12、punch 14-26，跑一条真实成片后按观感微调 `prompt.js` 里的建议区间。
 - **视觉审片**：目前是规则审片（lint）。渲染后抽帧给多模态模型复审是下一阶段。
@@ -34,5 +41,6 @@
 ## 费用/耗时相关
 
 - LLM：一条 1-2 分钟口播约 8-15k tokens 输入、2-4k 输出，通常 1 次通过，最多重试 3 次。
-- VectCut：草稿操作免费；生图和云渲染计费。`--dry-run` 不会触发任何计费。
+- VectCut：草稿操作免费；ASR 对齐（约 3 积分/条）、生图和云渲染计费。`--dry-run` 只会触发 ASR（有 key 时），不建草稿、不生图、不渲染；传 `--words` 则完全免费。
+- 实测：27 秒口播全流程（ASR 对齐 + Gemini 出方案 + 2 张生图 + 建草稿）约 110 秒，Gemini 一次通过（约 5.8k 输入 / 4.7k 输出 tokens）。
 - 渲染：文档建议素材走素材库内链可提速 90%；mp4/mp3 建议先上传到 VectCut 素材库再传链接。

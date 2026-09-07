@@ -59,7 +59,8 @@ export function createLayout({ canvas = { width: 1080, height: 1920 }, person, f
 
   function subtitle(position = 'lower_third') {
     const y = subtitleY[position] ?? subtitleY.lower_third;
-    return { ...toPx(0.5, y), yFraction: y, fixed_width: 0.55 };
+    // 14 chars at 剪映 size 10-12 (+25% highlights) need ~75% of a 1080 canvas to stay on one line.
+    return { ...toPx(0.5, y), yFraction: y, fixed_width: 0.82 };
   }
 
   function punch(position = 'above_head') {
