@@ -9,7 +9,8 @@ export const DEFAULT_LIMITS = {
   maxBrollSeconds: 6,
   maxEffectSeconds: 4,
   sfxPerMinute: 8,
-  minSfxGapSeconds: 0.7
+  minSfxGapSeconds: 0.7,
+  maxHighlightRatio: 0.6
 };
 
 function beatRange(beat, chunks) {
@@ -58,6 +59,10 @@ export function lintPlan(plan, { chunks, layout, duration, limits = DEFAULT_LIMI
       else warnings.push(`chunk ${entry.id}: highlight "${word}" is not in "${text}", dropped`);
     }
     entry.highlights = [...new Set(valid)];
+  }
+  const highlighted = result.chunks.filter(entry => entry.highlights.length).length;
+  if (result.chunks.length >= 6 && highlighted / result.chunks.length > limits.maxHighlightRatio) {
+    warnings.push(`highlights on ${highlighted}/${result.chunks.length} lines (> ${Math.round(limits.maxHighlightRatio * 100)}%); emphasis is diluted, consider a stricter brief`);
   }
 
   // 2. Subtitle position must not sit on the face.

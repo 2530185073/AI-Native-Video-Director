@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { loadEnvFile } from './config.js';
 import { directSecondCut } from './pipeline.js';
+import { resolveMedia } from './media.js';
 import { createLLM } from './providers/llm/openai-compatible.js';
 import { createImageProvider } from './providers/image/index.js';
 import { createVectCutClient } from './vectcut/client.js';
@@ -13,11 +14,11 @@ const HELP = `AI Native Video Director — 数字人口播二次精剪
   node src/cli.js --video <mp4 url> --audio <mp3 url> --script <文案.txt> [选项]
 
 必填:
-  --video URL          初版成片 mp4（可公网访问的链接）
+  --video URL|FILE     初版成片 mp4（公网链接，或本地文件路径：自动上传到 VectCut 临时存储）
   --script FILE|TEXT   原始口播文案（文件路径或直接文本）
 
 可选:
-  --audio URL          文案对应的 mp3；不传则用视频做 ASR
+  --audio URL|FILE     文案对应的 mp3；不传且 --video 是本地文件时，用 ffmpeg 自动抽取音频
   --words FILE         已有的逐字时间戳 JSON/SRT（跳过 ASR）
   --brief FILE         需求简报 JSON（平台/受众/目的/品牌色/风格）
   --person x,y,w,h     数字人在画面中的位置框（0-1 比例或像素）
@@ -110,9 +111,12 @@ async function main() {
   const numberOr = (value, fallback) => (value === undefined || value === '' ? fallback : Number(value));
 
   try {
+    // Local files (e.g. D:\clips\take1.mp4) are uploaded to VectCut temp storage; audio is extracted with ffmpeg.
+    const media = await resolveMedia({ video: args.video, audio: args.audio, client: vectcut, logger });
+
     const result = await directSecondCut({
-      videoUrl: args.video,
-      audioUrl: args.audio,
+      videoUrl: media.videoUrl,
+      audioUrl: media.audioUrl,
       script,
       words,
       brief,
