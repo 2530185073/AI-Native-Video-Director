@@ -46,22 +46,26 @@ export const TEXT_LOOP = [
   { name: '呐喊', hint: '情绪顶点' }
 ];
 
-/** 花字 (styled text presets). IDs from the official VectCut mapping table. */
+/**
+ * 花字 (styled text presets). IDs from the official VectCut mapping table. `hue` is the
+ * colour family the preset renders in (white / neutral / multi go with any accent; a
+ * coloured preset must match the subtitle highlight colour, see lint `punchPalette`).
+ */
 export const FLOWER_TEXT = [
-  { id: 'W0FmRVRXQV1EZ1JRS11BbEBWVQ==', name: '金色金属质感立体花字', hint: '价格、价值、高级感' },
-  { id: 'W0BpSlRRRldCZlhQTFpAaERcUw==', name: '黄色花字', hint: '通用重点词，网感最强' },
-  { id: 'WklvQVJSR1FAalxTTFtObUFVUw==', name: '综艺黄色描边花字', hint: '综艺感、吐槽、反转' },
-  { id: 'WkhtRF1QQlNBZllSTFlMZktSUg==', name: '综艺 白色', hint: '干净的综艺字幕' },
-  { id: 'WkprRFxVRVxEaV1TQFlIakRUVQ==', name: '系统故障字', hint: '科技、错误、反差' },
-  { id: 'W0BuQldSQFZCbllUSVVJZkVVVA==', name: '潮酷金黄色发光霓虹灯牌花字', hint: '潮酷、夜店、年轻' },
-  { id: 'WkpuRFxRQlBNalpSS19IaUNSVg==', name: '知识-花字', hint: '知识科普、干货' },
-  { id: 'W0BmQFNaQVJBbFlRTVlLbkBdUA==', name: '红色花字', hint: '警告、禁止、亏损' },
-  { id: 'W0BtRFRVQlRAa19XSFpBa0tWUQ==', name: '简约黑色描边立体花字', hint: '专业、稳重的重点词' },
-  { id: 'WktrQVNSR1FDaFJXQFVObUVcVA==', name: '小清新绿色描边花字', hint: '健康、自然、省钱' },
-  { id: 'W0FmRVRQSlZGb15QT1RJbEVcUA==', name: '蓝色斜向跳色花字', hint: '科技、理性、数据' },
-  { id: 'WkhpQ1BaRF1Bal1dT1RAbkJRUw==', name: '潮酷发光立体花字', hint: '标题、开场 hook' },
-  { id: 'WkppQVJWS1RNbFlVQFtMa0ZcUg==', name: '纸纹底手写纹理花字', hint: '文艺、故事、情感' },
-  { id: 'Wk1vRFZWQFJGb1NUTFVKaUdRUA==', name: '火焰立体', hint: '爆款、热销、燃' }
+  { id: 'W0FmRVRXQV1EZ1JRS11BbEBWVQ==', name: '金色金属质感立体花字', hue: 'yellow', hint: '价格、价值、高级感' },
+  { id: 'W0BpSlRRRldCZlhQTFpAaERcUw==', name: '黄色花字', hue: 'yellow', hint: '通用重点词，网感最强' },
+  { id: 'WklvQVJSR1FAalxTTFtObUFVUw==', name: '综艺黄色描边花字', hue: 'yellow', hint: '综艺感、吐槽、反转' },
+  { id: 'WkhtRF1QQlNBZllSTFlMZktSUg==', name: '综艺 白色', hue: 'white', hint: '干净的综艺字幕' },
+  { id: 'WkprRFxVRVxEaV1TQFlIakRUVQ==', name: '系统故障字', hue: 'multi', hint: '科技、错误、反差' },
+  { id: 'W0BuQldSQFZCbllUSVVJZkVVVA==', name: '潮酷金黄色发光霓虹灯牌花字', hue: 'yellow', hint: '潮酷、夜店、年轻' },
+  { id: 'WkpuRFxRQlBNalpSS19IaUNSVg==', name: '知识-花字', hue: 'blue', hint: '知识科普、干货（成片里是蓝色，只配蓝色强调色）' },
+  { id: 'W0BmQFNaQVJBbFlRTVlLbkBdUA==', name: '红色花字', hue: 'red', hint: '警告、禁止、亏损' },
+  { id: 'W0BtRFRVQlRAa19XSFpBa0tWUQ==', name: '简约黑色描边立体花字', hue: 'white', hint: '专业、稳重的重点词（白字黑边，任何强调色都能配）' },
+  { id: 'WktrQVNSR1FDaFJXQFVObUVcVA==', name: '小清新绿色描边花字', hue: 'green', hint: '健康、自然、省钱' },
+  { id: 'W0FmRVRQSlZGb15QT1RJbEVcUA==', name: '蓝色斜向跳色花字', hue: 'blue', hint: '科技、理性、数据' },
+  { id: 'WkhpQ1BaRF1Bal1dT1RAbkJRUw==', name: '潮酷发光立体花字', hue: 'multi', hint: '标题、开场 hook' },
+  { id: 'WkppQVJWS1RNbFlVQFtMa0ZcUg==', name: '纸纹底手写纹理花字', hue: 'neutral', hint: '文艺、故事、情感' },
+  { id: 'Wk1vRFZWQFJGb1NUTFVKaUdRUA==', name: '火焰立体', hue: 'red', hint: '爆款、热销、燃' }
 ];
 
 export const IMAGE_INTRO = [
@@ -163,6 +167,10 @@ export function flowerIds() {
   return FLOWER_TEXT.map(item => item.id);
 }
 
+export function flowerById(id) {
+  return FLOWER_TEXT.find(item => item.id === id) || null;
+}
+
 /** Compact, prompt-friendly rendering of the catalog. */
 export function describeCatalog(catalog = CATALOG) {
   const line = (title, list, key = 'name') => `${title}: ${list.map(item => `${item[key]}${item.hint ? `(${item.hint})` : ''}`).join('、')}`;
@@ -172,7 +180,7 @@ export function describeCatalog(catalog = CATALOG) {
     line('文字入场动画 textIntro', catalog.textIntro),
     line('文字出场动画 textOutro', catalog.textOutro),
     line('文字循环动画 textLoop', catalog.textLoop),
-    `花字 flowerId(用 id 引用): ${catalog.flowerText.map(item => `${item.id}=${item.name}(${item.hint})`).join('、')}`,
+    `花字 flowerId(用 id 引用，括号里先是色系：花字预设自带颜色，彩色预设必须和 highlightColor 同色系，否则会被换掉): ${catalog.flowerText.map(item => `${item.id}=${item.name}(${item.hue}；${item.hint})`).join('、')}`,
     line('重点词位置 punchPosition', catalog.punchPositions),
     line('图片入场动画 imageIntro', catalog.imageIntro),
     line('图片出场动画 imageOutro', catalog.imageOutro),

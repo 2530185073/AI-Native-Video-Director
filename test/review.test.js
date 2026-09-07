@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildContactSheet, probeRender, reviewContactSheet, reviewRender, reviewTimestamps } from '../src/review.js';
@@ -88,8 +88,19 @@ test('buildContactSheet tiles frames from a real mp4 (skipped without ffmpeg)', 
   assert.equal(qc.review, null);
   assert.ok(logs.some(line => line.includes('sheet only')));
 
+  // A different render URL invalidates the cached mp4 (the fix round must not grade the first cut).
+  const bytes = readFileSync(video);
+  let fetched = 0;
+  const serveLocal = async () => { fetched += 1; return new Response(bytes, { status: 200 }); };
+  const again = await reviewRender({ videoUrl: 'https://unused.test/y.mp4', plan, chunks, duration: Math.min(duration, 6), canvas: { width: 270, height: 480 }, outDir: dir, llm: null, logger: () => {}, fetchImpl: serveLocal });
+  assert.equal(fetched, 1, 'new URL → re-downloaded');
+  assert.ok(again.probe?.ok);
+  assert.equal(readFileSync(join(dir, 'render.url'), 'utf8'), 'https://unused.test/y.mp4');
+  await reviewRender({ videoUrl: 'https://unused.test/y.mp4', plan, chunks, duration: Math.min(duration, 6), canvas: { width: 270, height: 480 }, outDir: dir, llm: null, logger: () => {}, fetchImpl: serveLocal });
+  assert.equal(fetched, 1, 'same URL → cached');
+
   // A render on the wrong canvas never reaches the (expensive) vision step.
-  const gated = await reviewRender({ videoUrl: 'https://unused.test/x.mp4', plan, chunks, duration: Math.min(duration, 6), canvas: { width: 1080, height: 1920 }, outDir: dir, llm: null, logger: () => {} });
+  const gated = await reviewRender({ videoUrl: 'https://unused.test/y.mp4', plan, chunks, duration: Math.min(duration, 6), canvas: { width: 1080, height: 1920 }, outDir: dir, llm: null, logger: () => {} });
   assert.equal(gated.review.verdict, 'fix');
   assert.equal(gated.sheet, null);
   assert.ok(gated.review.issues[0].problem.includes('canvas'));

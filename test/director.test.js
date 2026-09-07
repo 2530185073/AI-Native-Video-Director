@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildPlanSchema, validatePlan } from '../src/director/schema.js';
-import { DEFAULT_LIMITS, lintPlan, STATIC_FILL_REASON } from '../src/director/lint.js';
+import { DEFAULT_LIMITS, colorFamily, lintPlan, STATIC_FILL_REASON } from '../src/director/lint.js';
+import { flowerById } from '../src/director/catalog.js';
 import { createEditingPlan, normalizePlan } from '../src/director/planner.js';
 import { chunkRange } from '../src/timeline/chunker.js';
 import { DIRECTOR_SYSTEM_PROMPT, loadDirectorSkill, rhythmBudget, scriptDensity } from '../src/director/prompt.js';
@@ -222,6 +223,61 @@ test('lint keeps the face on screen for the closing line and lets only one punch
   for (const beat of punches) if (beat.chunkId !== 4) assert.equal(beat.fontSize, 22 - DEFAULT_LIMITS.apexStep);
   assert.ok(warnings.some(warning => warning.includes('apex')));
   assert.equal(validatePlan(linted, { chunks }).length, 0);
+});
+
+test('lint keeps punch text to white + the highlight colour, including the colour baked into flower presets', () => {
+  assert.equal(colorFamily('#FFD93D'), 'yellow');
+  assert.equal(colorFamily('#FFFFFF'), 'white');
+  assert.equal(colorFamily('#3366FF'), 'blue');
+  assert.equal(colorFamily('#E53935'), 'red');
+  assert.equal(colorFamily('#00E676'), 'green');
+
+  const { chunks, layout, duration } = fixture();
+  const plan = samplePlan(chunks);
+  const punch = (chunkId, style) => ({ type: 'punch', chunkId, text: chunks[chunkId - 1].text.slice(0, 2), fontSize: 18, intro: '弹入', loop: null, position: 'chest', outro: null, sfx: null, reason: 'big word here', ...style });
+  const blueKnowledge = 'WkpuRFxRQlBNalpSS19IaUNSVg==';
+  const whiteOutline = 'W0BtRFRVQlRAa19XSFpBa0tWUQ==';
+  const green = 'WktrQVNSR1FDaFJXQFVObUVcVA==';
+  plan.subtitleStyle.highlightColor = '#FFD93D';
+  plan.beats = [
+    punch(2, { flowerId: blueKnowledge, color: null }),
+    punch(4, { flowerId: whiteOutline, color: null }),
+    punch(6, { flowerId: null, color: '#3366FF' }),
+    punch(8, { flowerId: null, color: '#FFFFFF' }),
+    punch(10, { flowerId: green, color: null })
+  ];
+  const { plan: linted, warnings } = lintPlan(plan, { chunks, layout, duration, limits: { ...DEFAULT_LIMITS, punchPerMinute: 30, maxPunchStyles: 10 } });
+  const byChunk = Object.fromEntries(linted.beats.filter(beat => beat.type === 'punch').map(beat => [beat.chunkId, beat]));
+  assert.equal(flowerById(byChunk[2].flowerId).hue, 'yellow', 'blue knowledge preset swapped for a yellow one');
+  assert.equal(byChunk[4].flowerId, whiteOutline, 'white-outline preset goes with any accent');
+  assert.equal(byChunk[6].color, '#FFD93D', 'plain blue recoloured to the accent');
+  assert.equal(byChunk[8].color, '#FFFFFF', 'white stays');
+  assert.equal(flowerById(byChunk[10].flowerId).hue, 'yellow', 'green preset swapped too');
+  assert.equal(warnings.filter(warning => warning.includes('preset')).length, 2);
+  assert.ok(warnings.some(warning => warning.includes('off-palette')));
+  assert.equal(validatePlan(linted, { chunks }).length, 0);
+});
+
+test('lint puts a solid enough scrim behind the subtitles when the footage has a busy lower third', () => {
+  const { chunks, layout, duration } = fixture();
+  const source = { lowerThirdBusy: true, lowerThirdReason: '黑色短袖胸前有白色英文印花' };
+
+  const off = samplePlan(chunks);
+  off.subtitleStyle.background = { enabled: false };
+  const enabled = lintPlan(off, { chunks, layout, duration, source });
+  assert.equal(enabled.plan.subtitleStyle.background.enabled, true);
+  assert.equal(enabled.plan.subtitleStyle.background.alpha, DEFAULT_LIMITS.busyScrimAlpha);
+  assert.ok(enabled.warnings.some(warning => warning.includes('busy lower third')));
+
+  const faint = samplePlan(chunks);
+  faint.subtitleStyle.background = { enabled: true, color: '#000000', alpha: 0.45 };
+  const raised = lintPlan(faint, { chunks, layout, duration, source });
+  assert.equal(raised.plan.subtitleStyle.background.alpha, DEFAULT_LIMITS.busyScrimAlpha, 'a faint bar is raised, not replaced');
+  assert.equal(raised.plan.subtitleStyle.background.color, '#000000');
+  assert.ok(raised.warnings.some(warning => warning.includes('too faint')));
+
+  const clean = lintPlan(faint, { chunks, layout, duration, source: { lowerThirdBusy: false } });
+  assert.equal(clean.plan.subtitleStyle.background.alpha, 0.45, 'untouched when the lower third is clean');
 });
 
 test('rhythm budget scales with script density', () => {

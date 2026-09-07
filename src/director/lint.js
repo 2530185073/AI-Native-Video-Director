@@ -1,4 +1,5 @@
 import { chunkRange } from '../timeline/chunker.js';
+import { FLOWER_TEXT, flowerById } from './catalog.js';
 
 export const DEFAULT_LIMITS = {
   punchPerMinute: 8,
@@ -29,6 +30,9 @@ export const DEFAULT_LIMITS = {
   apexStep: 3,
   // The last line (conclusion / CTA) is spoken to camera: no picture may cover the face there.
   protectClosing: true,
+  // Minimum opacity of the subtitle bar when the footage has a busy lower third (printed
+  // clothing, patterned wall). Black at 35-60% is the usual range; busy backgrounds need the top of it.
+  busyScrimAlpha: 0.6,
   // Plain-colour punch text may only use white or the subtitle highlight colour (one neutral + one accent).
   punchPalette: true,
   // A picture card narrower than this share of the canvas is a thumbnail nobody can read;
@@ -68,6 +72,29 @@ export function isNeutralWhite(hex) {
 }
 
 const sameColor = (a, b) => String(a || '').toLowerCase() === String(b || '').toLowerCase();
+
+/** Coarse colour family of a hex colour, matching the `hue` vocabulary of the flower presets. */
+export function colorFamily(hex) {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return null;
+  if (isNeutralWhite(hex)) return 'white';
+  const r = rgb.r / 255; const g = rgb.g / 255; const b = rgb.b / 255;
+  const max = Math.max(r, g, b); const min = Math.min(r, g, b);
+  const delta = max - min;
+  if (delta < 0.12) return 'neutral';
+  let hue;
+  if (max === r) hue = ((g - b) / delta) % 6;
+  else if (max === g) hue = (b - r) / delta + 2;
+  else hue = (r - g) / delta + 4;
+  hue = (hue * 60 + 360) % 360;
+  if (hue < 20 || hue >= 335) return 'red';
+  if (hue < 75) return 'yellow';
+  if (hue < 170) return 'green';
+  if (hue < 265) return 'blue';
+  return 'purple';
+}
+
+const ANY_ACCENT_HUES = new Set(['white', 'neutral', 'multi']);
 
 function beatRange(beat, chunks) {
   if (beat.type === 'punch') return chunkRange(chunks, beat.chunkId, beat.chunkId);
@@ -155,9 +182,16 @@ export function lintPlan(plan, { chunks, layout, duration, source, limits = DEFA
   // 0. What the pre-flight look at the footage found: a busy lower third (printed clothing,
   //    patterned background) needs a scrim behind the subtitles — floating text over
   //    texture is the most common readability failure in the reviewer's notes.
-  if (source?.lowerThirdBusy && !result.subtitleStyle.background?.enabled) {
-    result.subtitleStyle.background = { enabled: true, color: '#000000', alpha: 0.55 };
-    warnings.push(`source frame shows a busy lower third (${source.lowerThirdReason || 'texture behind the subtitles'}); enabled a translucent subtitle bar`);
+  if (source?.lowerThirdBusy) {
+    const bar = result.subtitleStyle.background;
+    if (!bar?.enabled) {
+      result.subtitleStyle.background = { enabled: true, color: '#000000', alpha: limits.busyScrimAlpha };
+      warnings.push(`source frame shows a busy lower third (${source.lowerThirdReason || 'texture behind the subtitles'}); enabled a translucent subtitle bar`);
+    } else if (!(Number(bar.alpha) >= limits.busyScrimAlpha)) {
+      // A faint scrim lets printed letters bleed through the subtitles ("重影杂字" in the reviewer's words).
+      warnings.push(`subtitle bar alpha ${bar.alpha} is too faint for a busy lower third (${source.lowerThirdReason || 'texture'}); raised to ${limits.busyScrimAlpha}`);
+      result.subtitleStyle.background = { ...bar, alpha: limits.busyScrimAlpha };
+    }
   }
 
   // 1. Highlights must literally appear in the subtitle chunk.
@@ -339,9 +373,27 @@ export function lintPlan(plan, { chunks, layout, duration, source, limits = DEFA
   //      colour, nothing else. A third colour is what makes a video read as "配色杂乱".
   if (limits.punchPalette) {
     const accent = result.subtitleStyle?.highlightColor;
+    const accentFamily = colorFamily(accent);
     for (const beat of beats) {
-      if (beat.type !== 'punch' || beat.flowerId || !beat.color) continue;
-      if (isNeutralWhite(beat.color) || sameColor(beat.color, accent)) continue;
+      if (beat.type !== 'punch') continue;
+      if (beat.flowerId) {
+        // Presets carry their own colour: a blue "knowledge" preset under a yellow highlight is
+        // the third colour the reviewer keeps flagging. Swap to a preset in the accent's family,
+        // or fall back to plain text in the accent colour.
+        const preset = flowerById(beat.flowerId);
+        if (!preset || !preset.hue || ANY_ACCENT_HUES.has(preset.hue) || !accentFamily || preset.hue === accentFamily) continue;
+        const replacement = FLOWER_TEXT.find(item => item.hue === accentFamily);
+        if (replacement) {
+          warnings.push(`punch "${beat.text}" uses the ${preset.hue} preset ${preset.name} under a ${accentFamily} highlight (${accent}); swapped to ${replacement.name} so the video keeps one accent`);
+          beat.flowerId = replacement.id;
+        } else {
+          warnings.push(`punch "${beat.text}" uses the ${preset.hue} preset ${preset.name} under a ${accentFamily} highlight (${accent}); no preset in that family, so it becomes plain text in the highlight colour`);
+          beat.flowerId = null;
+          beat.color = accent;
+        }
+        continue;
+      }
+      if (!beat.color || isNeutralWhite(beat.color) || sameColor(beat.color, accent)) continue;
       warnings.push(`punch "${beat.text}" colour ${beat.color} is off-palette (white or highlight ${accent} only); recoloured to the highlight colour`);
       beat.color = accent;
     }

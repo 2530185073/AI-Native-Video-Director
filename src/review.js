@@ -6,7 +6,7 @@
  * (`contact-sheet.jpg`, `review.json`) so a human or a retry loop can act on it.
  */
 import { spawn } from 'node:child_process';
-import { createWriteStream, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { join } from 'node:path';
@@ -277,9 +277,15 @@ export async function reviewContactSheet({ llm, sheetPath, frames, plan, brief, 
 export async function reviewRender({ videoUrl, plan, chunks, duration, outDir, llm, brief, layout, canvas, logger = () => {}, ffmpeg, ffprobe, fetchImpl }) {
   mkdirSync(outDir, { recursive: true });
   const videoPath = join(outDir, 'render.mp4');
-  if (!existsSync(videoPath)) {
+  const urlSidecar = join(outDir, 'render.url');
+  // Reuse a cached download only when it is *this* render; a fix round produces a new URL.
+  const cachedUrl = existsSync(urlSidecar) ? readFileSync(urlSidecar, 'utf8').trim() : null;
+  if (!existsSync(videoPath) || (cachedUrl && cachedUrl !== videoUrl)) {
     logger('review: downloading render');
     await downloadFile(videoUrl, videoPath, { fetchImpl });
+    writeFileSync(urlSidecar, videoUrl);
+  } else if (!cachedUrl) {
+    writeFileSync(urlSidecar, videoUrl);
   }
   const probe = await probeRender({ videoPath, canvas: canvas || layout?.canvas, duration, ffprobe });
   if (probe && !probe.ok) {

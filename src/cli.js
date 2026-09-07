@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { basename, join, resolve } from 'node:path';
 import { loadEnvFile } from './config.js';
 import { directSecondCut } from './pipeline.js';
 import { createLayout } from './layout/layout.js';
@@ -214,7 +214,18 @@ async function main() {
       logger(`fix round: ${qc.review.issues.length} issue(s) fed back to the director`);
       const firstDir = join(outDir, 'v1');
       writeOutputs(firstDir, result);
-      writeFileSync(join(firstDir, 'review.json'), JSON.stringify({ probe: qc.probe, frames: qc.frames, sheet: qc.sheet, review: qc.review }, null, 2));
+      // The render and its contact sheet move with the first cut, otherwise the second
+      // review would find a cached render.mp4 and grade the wrong video.
+      for (const name of ['render.mp4', 'render.url', 'contact-sheet.jpg', 'frames']) {
+        const from = join(outDir, name);
+        if (existsSync(from)) renameSync(from, join(firstDir, name));
+      }
+      const movedQc = {
+        ...qc,
+        sheet: qc.sheet ? join(firstDir, 'contact-sheet.jpg') : qc.sheet,
+        frames: (qc.frames || []).map(frame => ({ ...frame, file: frame.file ? join(firstDir, 'frames', basename(frame.file)) : frame.file }))
+      };
+      writeFileSync(join(firstDir, 'review.json'), JSON.stringify({ probe: movedQc.probe, frames: movedQc.frames, sheet: movedQc.sheet, review: movedQc.review }, null, 2));
       rounds.push({ dir: firstDir, verdict: qc.review.verdict, overall: qc.review.overall });
       const revised = await directSecondCut({
         ...baseInputs,
