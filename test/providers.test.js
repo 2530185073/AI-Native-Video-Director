@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { OpenAICompatibleLLM } from '../src/providers/llm/openai-compatible.js';
+import {
+  GeminiLLM,
+  createLLM,
+  resolveGeminiBaseUrl,
+  toGeminiSchema
+} from '../src/providers/llm/index.js';
 import { VectCutClient, VectCutError } from '../src/vectcut/client.js';
 import { VectCutImageProvider, OpenAICompatibleImageProvider } from '../src/providers/image/index.js';
 import { alignWithExternalService } from '../src/asr/external.js';
@@ -9,7 +15,118 @@ import { getWordTimeline } from '../src/asr/timeline.js';
 
 const jsonResponse = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-test('LLM provider falls back from json_schema to json_object when the endpoint rejects the schema', async () => {
+test('resolveGeminiBaseUrl rewrites OpenAI-compatible roots to v1beta', () => {
+  assert.equal(resolveGeminiBaseUrl('https://api.zyai.online/v1'), 'https://api.zyai.online/v1beta');
+  assert.equal(resolveGeminiBaseUrl('https://generativelanguage.googleapis.com/v1beta/openai'), 'https://generativelanguage.googleapis.com/v1beta');
+  assert.equal(resolveGeminiBaseUrl('https://api.zyai.online/v1beta/'), 'https://api.zyai.online/v1beta');
+});
+
+test('toGeminiSchema uppercases types and converts null unions to nullable', () => {
+  const schema = toGeminiSchema({
+    type: 'object',
+    additionalProperties: false,
+    required: ['track', 'reason'],
+    properties: {
+      track: { type: 'string', enum: ['none', 'lofi_clean'] },
+      reason: { type: ['string', 'null'], enum: ['x', null] },
+      nested: {
+        type: 'array',
+        items: { type: 'object', properties: { id: { type: 'integer' } } }
+      }
+    }
+  });
+  assert.equal(schema.type, 'OBJECT');
+  assert.equal(schema.properties.track.type, 'STRING');
+  assert.equal(schema.properties.reason.type, 'STRING');
+  assert.equal(schema.properties.reason.nullable, true);
+  assert.deepEqual(schema.properties.reason.enum, ['x']);
+  assert.equal(schema.properties.nested.type, 'ARRAY');
+  assert.equal(schema.properties.nested.items.type, 'OBJECT');
+  assert.equal(schema.properties.nested.items.properties.id.type, 'INTEGER');
+  assert.equal('additionalProperties' in schema, false);
+});
+
+test('Gemini native provider calls generateContent with responseSchema', async () => {
+  const requests = [];
+  const fetchImpl = async (url, init) => {
+    const body = JSON.parse(init.body);
+    requests.push({ url: String(url), body, auth: init.headers.Authorization });
+    if (body.generationConfig?.responseSchema) {
+      return jsonResponse(200, {
+        candidates: [{ content: { role: 'model', parts: [{ text: '{"ok":true}' }] }, finishReason: 'STOP' }],
+        usageMetadata: { totalTokenCount: 9 }
+      });
+    }
+    return jsonResponse(400, { error: { message: 'unexpected' } });
+  };
+  const llm = new GeminiLLM({
+    apiKey: 'sk-test',
+    baseUrl: 'https://api.zyai.online/v1',
+    model: 'gemini-3.8-flash',
+    fetchImpl
+  });
+  const result = await llm.generateJson({
+    system: 'sys',
+    user: 'user',
+    schema: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] }
+  });
+  assert.deepEqual(result.data, { ok: true });
+  assert.equal(result.mode, 'json_schema');
+  assert.equal(requests[0].url, 'https://api.zyai.online/v1beta/models/gemini-3.8-flash:generateContent');
+  assert.equal(requests[0].auth, 'Bearer sk-test');
+  assert.equal(requests[0].body.systemInstruction.parts[0].text, 'sys');
+  assert.equal(requests[0].body.generationConfig.responseMimeType, 'application/json');
+  assert.equal(requests[0].body.generationConfig.responseSchema.type, 'OBJECT');
+  assert.equal(requests[0].body.generationConfig.responseSchema.properties.ok.type, 'BOOLEAN');
+});
+
+test('Gemini native provider falls back when responseSchema is rejected', async () => {
+  const modes = [];
+  const fetchImpl = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    const hasSchema = Boolean(body.generationConfig?.responseSchema);
+    const mime = body.generationConfig?.responseMimeType;
+    modes.push(hasSchema ? 'schema' : mime || 'text');
+    if (hasSchema) return jsonResponse(400, { error: { message: 'Invalid JSON payload' } });
+    return jsonResponse(200, {
+      candidates: [{ content: { parts: [{ text: '{"ok":true}' }] }, finishReason: 'STOP' }]
+    });
+  };
+  const llm = new GeminiLLM({ apiKey: 'sk-test', baseUrl: 'https://g.test/v1beta', model: 'm', fetchImpl });
+  const result = await llm.generateJson({ user: 'u', schema: { type: 'object', properties: { ok: { type: 'boolean' } } } });
+  assert.deepEqual(result.data, { ok: true });
+  assert.equal(result.mode, 'json_object');
+  assert.deepEqual(modes, ['schema', 'application/json']);
+});
+
+test('Gemini native provider uses x-goog-api-key for official AIza keys', async () => {
+  let headers;
+  const fetchImpl = async (_url, init) => {
+    headers = init.headers;
+    return jsonResponse(200, { candidates: [{ content: { parts: [{ text: '{"ok":1}' }] } }] });
+  };
+  const llm = new GeminiLLM({ apiKey: 'AIzaSyTest', baseUrl: 'https://g.test/v1beta', model: 'm', fetchImpl });
+  await llm.generateJson({ user: 'u', schema: { type: 'object', properties: { ok: { type: 'number' } } } });
+  assert.equal(headers['x-goog-api-key'], 'AIzaSyTest');
+  assert.equal(headers.Authorization, undefined);
+});
+
+test('createLLM defaults to Gemini native', () => {
+  const previous = process.env.LLM_PROVIDER;
+  delete process.env.LLM_PROVIDER;
+  try {
+    const llm = createLLM({ apiKey: 'sk-x' });
+    assert.equal(llm.name, 'gemini');
+    assert.ok(llm instanceof GeminiLLM);
+    const openai = createLLM({ provider: 'openai-compatible', apiKey: 'sk-x', baseUrl: 'https://x/v1' });
+    assert.ok(openai instanceof OpenAICompatibleLLM);
+  } finally {
+    if (previous == null) delete process.env.LLM_PROVIDER;
+    else process.env.LLM_PROVIDER = previous;
+  }
+});
+
+test('LLM OpenAI-compatible provider falls back from json_schema to json_object when the endpoint rejects the schema', async () => {
   const requests = [];
   const fetchImpl = async (url, init) => {
     const body = JSON.parse(init.body);
@@ -25,7 +142,7 @@ test('LLM provider falls back from json_schema to json_object when the endpoint 
   assert.equal(requests[0].url, 'https://llm.test/v1/chat/completions');
 });
 
-test('LLM provider surfaces auth errors immediately', async () => {
+test('LLM OpenAI-compatible provider surfaces auth errors immediately', async () => {
   const llm = new OpenAICompatibleLLM({ apiKey: 'bad', fetchImpl: async () => jsonResponse(401, { error: 'unauthorized' }) });
   await assert.rejects(() => llm.generateJson({ user: 'u', schema: { type: 'object' } }), /HTTP 401/);
 });

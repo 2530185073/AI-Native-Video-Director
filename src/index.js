@@ -12,5 +12,17 @@ export { createEditingPlan, normalizePlan } from './director/planner.js';
 export { compilePlan, summarizeOps } from './vectcut/compiler.js';
 export { executeOps, summarizeScript } from './vectcut/executor.js';
 export { VectCutClient, createVectCutClient } from './vectcut/client.js';
-export { OpenAICompatibleLLM, createLLM } from './providers/llm/openai-compatible.js';
+export {
+  createLLM,
+  GeminiLLM,
+  createGeminiLLM,
+  resolveGeminiBaseUrl,
+  toGeminiSchema,
+  GEMINI_NATIVE_BASE_URL,
+  OpenAICompatibleLLM,
+  createOpenAICompatibleLLM,
+  extractJson,
+  simplifySchema,
+  GEMINI_OPENAI_BASE_URL
+} from './providers/llm/index.js';
 export { createImageProvider, VectCutImageProvider, OpenAICompatibleImageProvider } from './providers/image/index.js';

@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { loadEnvFile } from './config.js';
 import { directSecondCut } from './pipeline.js';
 import { resolveMedia } from './media.js';
-import { createLLM } from './providers/llm/openai-compatible.js';
+import { createLLM } from './providers/llm/index.js';
 import { createImageProvider } from './providers/image/index.js';
 import { createVectCutClient } from './vectcut/client.js';
 

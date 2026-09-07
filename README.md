@@ -18,7 +18,7 @@
         ▼
  ① 逐字时间轴        文案的每个字 ↔ 音频时间戳（Levenshtein 字符级对齐）
  ② 短句切片          8-14 字一屏、按停顿和标点切，带逐字时间
- ③ AI 导演决策       Gemini/OpenAI-compatible 结构化输出 → Editing Plan JSON
+ ③ AI 导演决策       Gemini 原生 generateContent 结构化输出 → Editing Plan JSON
  ④ 规则审片 lint     高亮必须在字幕里、不遮脸、每分钟密度上限、B-roll 不重叠……
  ⑤ 编译             Plan → VectCut 操作序列（纯函数，可 dry-run 审阅）
  ⑥ 执行             建草稿 / 主视频 / BGM 铺满 / 关键帧推镜 / 批量字幕 / 花字 / 生图 B-roll / 特效 / 音效 / query_script 校验
@@ -132,7 +132,7 @@ src/
   timeline/       任意 ASR 输出归一化、短句切片器
   layout/         人物框 → VectCut 中心坐标系像素位置、推镜锚点
   director/       效果词表、音效/BGM 素材库、Plan schema、系统 prompt、planner（校验+修复循环）、lint
-  providers/      llm/openai-compatible（默认 Gemini）、image（VectCut 聚合 / OpenAI-compatible）
+  providers/      llm/gemini（默认，原生 generateContent）+ openai-compatible 备用、image（VectCut 聚合 / OpenAI-compatible）
   vectcut/        真实 API 客户端、Plan→操作编译器、执行器（fallback/dry-run）、缩放换算
   pipeline.js     编排
   cli.js          命令行
