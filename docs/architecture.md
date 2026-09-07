@@ -16,7 +16,7 @@
 
 ## 时间轴层
 
-1. `getWordTimeline` 按优先级选源：内联 `words` → **Groq Whisper**（默认；词级时间戳，把文案当 prompt 提升识别）→ 外部对照接口（`ASR_ALIGN_URL`）→ VectCut 识别字幕兜底（`asr/vectcut.js`，传 `content` 走 sta 文案对齐模式，`segments[].words[]` 是逐字毫秒时间戳）。
+1. `getWordTimeline` 按优先级选源：内联 `words` → **Groq Whisper**（默认；词级时间戳。不传整段文案作 prompt——实测会让 large-v3 在部分片段整段幻听；转写后按文案逐字精确匹配率 `exactCoverage` 自检，低于阈值换 turbo 重试，仍低且有 VectCut 时自动转 VectCut 对齐）→ 外部对照接口（`ASR_ALIGN_URL`）→ VectCut 识别字幕兜底（`asr/vectcut.js`，传 `content` 走 sta 文案对齐模式，`segments[].words[]` 是逐字毫秒时间戳）。
 2. `normalizeWords` 把任意形状的返回统一成 `[{ text, start, end }]`。
 3. `alignScriptCharacters` 用 Levenshtein DP（Int32Array 行，2000×2000 也只有几 MB）把文案每个字对到 ASR 字上，得到逐字时间。
 4. `buildChunks` 生成字幕片段：先按标点切句，再按 >0.35s 的停顿切，再对超过 14 字的句子在最大停顿处递归二分；标点从显示文本中去掉，但数字里的小数点保留。没对上的片段按字数在相邻片段之间插值，并标记 `interpolated`。短于 0.6s 的间隙会让字幕“撑到下一句”，避免闪烁。
@@ -25,11 +25,11 @@
 
 ## 布局层
 
-VectCut 使用画布中心坐标系（+y 向上，像素）。`createLayout` 接受 0-1 比例或像素的人物框/脸框，输出：
+VectCut 使用画布中心坐标系（+y 向上）。注意它的 “px” 单位：`(width, height)` 是画面**右上角**，即坐标范围是 ±width / ±height，草稿里存的是 `px/height`，剪映把 1.0 当半个画布——所以想位移画面高度的 f，要传 `2·f·height`（真机验证过：传 806 只移了 21%，不是 42%）。`createLayout` 里统一做了这层换算（`PX_UNIT = 2`），接受 0-1 比例或像素的人物框/脸框，输出：
 
 - `subtitle(position)`：lower_third / center_low / bottom → `transform_y_px`、`fixed_width`
 - `punch(position)`：above_head（头顶空间不足自动改脸侧）/ beside_face（自动选留白一侧）/ center / top
-- `broll(layout)`：card_top / fullscreen / pip_side / lower_card → 目标像素框 + 图片长宽比
+- `broll(layout)`：card_top / fullscreen / pip_side / lower_card → 目标像素框 + 图片长宽比。全部按实测留白自适应：`card_top` 缩到头顶留白里放得下，放不下降级为 `lower_card`；`pip_side` 脸侧留白 < 26% 时也降级；`lower_card` 严格卡在下巴与字幕行之间（大头特写构图常见）
 - `zoomAnchor(scale)`：推镜时补偿位移，让脸保持在原位
 - `overlapsFace(y)`：lint 用
 
