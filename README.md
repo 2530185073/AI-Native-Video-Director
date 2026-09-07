@@ -1,22 +1,54 @@
-# Hunjian V9 - AI 网感视频剪辑 Agent
+# AI-Native-Video-Director
 
-> 基于多模型 LLM + ASR 时间戳 + 生图模型 + VectCut 云剪辑 API 的智能视频生产底座。
+> AI 原生短视频导演系统（AI Video Director）。
+>
+> 不是固定模板剪辑，而是让 AI 理解内容、理解观众、理解画面，并自主决定如何完成口播、混剪、信息流广告视频生产。
 
-## 项目目标
+---
 
-不是固定模板剪辑，而是让 AI 理解内容后自主决定：
+## 项目定位
 
-- 哪些地方保留人物口播
-- 哪些地方需要商品/案例/解释图片
-- 哪些词需要重点字幕
-- 哪些位置需要放大、对比、卡片化展示
-- 什么时候需要节奏变化
+传统 AI 剪辑工具主要解决：
 
-最终生成可编辑草稿，并支持云渲染输出。
+- 自动加字幕
+- 自动套模板
+- 自动切片
+- 自动生成简单包装
 
-## 当前支持规划
+本项目目标是构建一个 **AI 视频导演 Agent**。
 
-### AI Brain
+AI 不只是执行剪辑动作，而是完成导演工作：
+
+- 判断哪里应该保留人物表达
+- 判断哪里应该展示商品或案例
+- 判断哪些关键词值得强调
+- 判断什么时候需要图片解释
+- 判断什么时候需要局部放大
+- 判断什么时候需要节奏变化
+- 判断什么时候应该保持干净，不添加任何效果
+
+最终输出：
+
+```
+原始视频
+    ↓
+AI理解内容
+    ↓
+生成剪辑方案
+    ↓
+调用剪辑引擎
+    ↓
+生成可编辑草稿
+    ↓
+云渲染成片
+```
+
+---
+
+# 核心能力
+
+## 1. Multi LLM AI Brain
+
 支持接入：
 
 - GPT
@@ -27,116 +59,269 @@
 - GLM
 - Kimi
 
-用于：
+不同模型承担不同角色：
 
-- 内容理解
-- 剪辑决策
-- 镜头规划
-- 字幕策略
-- 效果选择
+| 模型 | 方向 |
+|-|-|
+| GPT | 总导演、综合决策 |
+| Claude | 长视频理解、复杂规划 |
+| Gemini | 视频视觉理解、生图 |
+| DeepSeek | 低成本批量任务 |
+| Kimi | 中文长内容理解 |
+| Grok | 热点、网感分析 |
+| GLM | 国产生态适配 |
 
-### Vision / Image
+---
 
-- Gemini Image API
+# 2. ASR 视频理解层
 
-用于：
-
-- 补充视觉素材
-- 信息图
-- 背景图
-- 概念视觉
-
-### ASR
-
-支持：
+基于：
 
 - Groq Whisper
-- 词级时间戳
-- 参考文案字符级对齐
-- 长停顿（气口）压缩与时间轴重映射
+- word level timestamp
+- 字符级文本对齐
+
+能力：
+
+- 精确字幕同步
+- 口播文案校正
+- 气口检测
+- 停顿压缩
+- 时间轴重映射
+
+流程：
+
+```
+Whisper
+ ↓
+词级时间戳
+ ↓
+字符级 Alignment
+ ↓
+字幕结构化
+ ↓
+剪辑时间轴
+```
+
+代码：
+
+```
+src/asr/
+```
+
+---
+
+# 3. AI Director 决策系统
+
+核心不是模板，而是生成 Editing Plan。
+
+例如：
+
+```json
+{
+ "scene":"产品细节解释",
+ "keep_person":false,
+ "visual":"product_zoom",
+ "subtitle_highlight":["一万左右"],
+ "motion":"zoom_in"
+}
+```
+
+AI 负责决定：
+
+- 镜头语言
+- 字幕策略
+- 视觉补充
+- 动效选择
+- 节奏变化
+
+---
+
+# 4. Gemini Image Vision
 
 用于：
 
-- 精确字幕同步
-- 停顿分析
-- 节奏判断
+## Vision
 
-ASR 模块已实现于 `src/asr/`，主流程为：
+分析：
 
-```text
-Groq Whisper verbose_json + word timestamps
-    -> 参考文案按标点切句
-    -> 字符级 Levenshtein 对齐
-    -> 生成句子级 SRT
-    -> 根据词间停顿剪气口
-    -> 重映射字幕/视频/音乐时间轴
-```
+- 人物位置
+- 商品位置
+- 空白区域
+- 可放文字区域
+- 视觉重点
 
-基本调用方式：
+## Image Generation
 
-```js
-import { processAsrSubtitles } from './src/asr/index.js';
+生成：
 
-const result = await processAsrSubtitles({
-  audioUrl: 'https://example.com/talking-head.mp4',
-  referenceText: '这是人工校对后的口播文案。',
-  language: 'zh'
-});
+- 信息图
+- 背景视觉
+- 概念素材
+- 营销辅助图片
 
-// result.pipelineSrt 是去气口后用于剪辑的 SRT
-// result.debreath.timeline 可直接转换为 VectCut 的分段 add_video 操作
-```
+---
 
-### Editing Engine
+# 5. VectCut Editing Engine
 
-VectCut API 作为执行层：
+VectCut 作为执行层。
+
+负责：
 
 - 创建草稿
-- 修改草稿
 - 添加字幕
-- 添加图片/视频层
+- 添加图片
+- 添加视频轨
 - 关键帧动画
+- 修改草稿
 - 云渲染
-- 下载成片
+- 输出成片
 
-## 核心架构
+架构：
 
 ```
-Input Video
-    |
-    v
-ASR + Timestamp
-    |
-    v
-Content Understanding LLM
-    |
-    v
-Editing Plan JSON
-    |
-    v
+AI Editing Plan
+        ↓
 VectCut Adapter
-    |
-    v
-Draft -> Review -> Render
+        ↓
+Draft
+        ↓
+Render
 ```
 
-## 设计原则
+---
 
-1. AI 决策，不套模板
-2. 内容优先，特效服务表达
-3. 保留人工可编辑能力
-4. 支持实体店营销、口播、混剪、信息流广告
+# 支持场景
 
-## Roadmap
+## 口播视频
+
+例如：
+
+- 知识分享
+- 商品讲解
+- 专业领域内容
+
+## 混剪视频
+
+例如：
+
+- 产品营销
+- 案例展示
+- 热点内容
+
+## 信息流广告
+
+例如：
+
+- 抖音广告
+- 视频号广告
+- 小红书内容
+
+---
+
+# 项目架构
+
+```
+src/
+
+├── asr/
+│   └── Whisper + Alignment
+│
+├── agent/
+│   └── AI Director
+│
+├── providers/
+│   └── LLM Providers
+│
+├── vision/
+│   └── Gemini Vision/Image
+│
+├── schemas/
+│   └── Editing Plan
+│
+├── editing/
+│   └── VectCut Adapter
+│
+└── core/
+    └── Pipeline
+```
+
+---
+
+# 开发路线图
+
+## Phase 1 - MVP（当前目标）
+
+目标：
+
+> 一条口播视频自动生成 VectCut 可编辑草稿。
+
+完成：
 
 - [x] 项目初始化
-- [ ] 多 LLM Provider Adapter
 - [x] ASR Pipeline
-- [ ] 剪辑决策 Schema
-- [ ] VectCut SDK Adapter
-- [ ] 自动审片 Agent
-- [ ] Web 控制台
+- [x] 字幕时间轴系统
+- [x] Editing Plan Schema
+- [x] AI Director 基础流程
 
-## License
+开发中：
+
+- [ ] LLM Provider
+- [ ] Gemini Vision
+- [ ] VectCut 真执行接口
+- [ ] 自动生成第一版草稿
+
+---
+
+## Phase 2 - AI 剪辑师
+
+增加：
+
+- 多模型协作
+- 自动素材搜索
+- 自动生图
+- 自动字幕包装
+- 自动节奏控制
+
+---
+
+## Phase 3 - 自动审片 Agent
+
+AI 生成视频后自动检查：
+
+- 字幕是否错误
+- 节奏是否拖沓
+- 重点是否突出
+- 画面是否遮挡
+- 是否符合平台风格
+
+然后自动修改。
+
+---
+
+## Phase 4 - 商业化平台
+
+目标：
+
+提供：
+
+- 企业账号
+- 行业模板能力
+- 素材资产库
+- AI 视频生产流水线
+
+---
+
+# 设计原则
+
+1. AI 决策，不套固定模板
+2. 内容优先，特效服务表达
+3. 保留可编辑能力
+4. 支持真实商业生产
+5. AI 作为导演，而不是工具人
+
+---
+
+# License
 
 TBD
