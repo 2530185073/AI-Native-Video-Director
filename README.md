@@ -16,15 +16,19 @@
 数字人在画面中的位置框（可选，有默认值）
         │
         ▼
+ ⓪ 开拍前看素材      抽一帧给 Gemini：人脸/人物框、字幕区是否杂乱（印花衣服）、衣着颜色 → source 观察
  ① 逐字时间轴        文案的每个字 ↔ 音频时间戳（Levenshtein 字符级对齐）
  ② 短句切片          8-14 字一屏、按停顿和标点切，带逐字时间
- ③ AI 导演决策       Gemini 原生 generateContent，系统提示 = skills/talking-head-second-cut/SKILL.md → Editing Plan JSON
- ④ 规则审片 lint     高亮必须在字幕里、不遮脸、不进平台 UI 遮挡区、前 3 秒不切全屏图、推镜 ≥2s 且间隔 ≥2.5s、
-                    B-roll ≤35% 且全屏 ≥2s、音效语法、>8s 静止段补轻推、每分钟密度上限……
- ⑤ 编译             Plan → VectCut 操作序列（纯函数，可 dry-run 审阅）
- ⑥ 执行             建草稿 / 主视频 / BGM 铺满 / 关键帧推镜 / 批量字幕 / 花字 / 生图 B-roll / 特效 / 音效 / query_script 校验
+ ③ AI 导演决策       Gemini 原生 generateContent，系统提示 = skills/talking-head-second-cut/SKILL.md（v3）→ Editing Plan JSON
+                    提示里带构图等级（tight/medium/wide）、素材观察、按信息密度缩放的节奏预算
+ ④ 规则审片 lint     高亮必须在字幕里、不遮脸、不进平台 UI 遮挡区、前 3 秒不切全屏图、最后一句留人脸、推镜 ≥2s 且间隔 ≥2.5s、
+                    B-roll ≤35% 且全屏 ≥2s、近景小卡升级 pip_face、白 + 一个强调色、只有一个 apex 花字、音效语法、
+                    >8s 静止段补轻推、字幕区杂乱自动开底条、每分钟密度上限……
+ ⑤ 编译             Plan → VectCut 操作序列（纯函数，可 dry-run 审阅）；字幕比语音提前 120ms
+ ⑥ 执行             建草稿 / 主视频 / BGM 铺满 / 关键帧推镜 / 批量字幕 / 花字 / 生图 B-roll（含圆形人物小窗）/ 特效 / 音效 / query_script 校验
  ⑦ 云渲染（可选）    generate_video → task_status → mp4
- ⑧ 视觉审片（可选）  ffmpeg 抽帧（hook / 每个 beat / 中段 / 结尾）拼 contact-sheet.jpg → Gemini 看图打分 review.json
+ ⑧ 审片（可选）      ffprobe 技术门禁（画幅/时长/音轨）→ ffmpeg 抽帧拼 contact-sheet.jpg → Gemini 看图打分 review.json（含承诺核对）
+ ⑨ 修订一轮（可选）  审片判 fix 时把问题回灌导演重做、重渲、再审（--fix），首版留在 v1/
         │
         ▼
 可在剪映里继续改的草稿 + 渲染成片 + plan.json / ops.json / review.json 留档
@@ -40,7 +44,7 @@
 | 每句要变色/放大的关键词（0-2 个） | `text_styles` 局部样式 | `add_batch_text.text_styles_list` |
 | 爆点词大字（数字/价格/结论/反转/CTA） | 花字 or 纯色大字 + 入场/循环/出场动画，出现在人物头顶/脸侧/顶部 | `add_text` + `effect_effect_id` |
 | 镜头轻推强调（1.08-1.2，2-5 秒回落） | `uniform_scale` + `position_*_px` 关键帧，锁定脸部不跑偏 | `add_video_keyframe` |
-| B-roll 补画面（商品/场景/对比/数据） | AI 写生图 prompt → 生图 → 全屏 / 头顶卡片 / 脸侧画中画 / 字幕上横卡 | 生图聚合接口 + `add_image` |
+| B-roll 补画面（商品/场景/对比/数据） | AI 写生图 prompt → 生图 → 全屏 / 全屏 + 人物圆形小窗（pip_face，近景首选）/ 头顶卡片 / 脸侧画中画 / 字幕上横卡 | 生图聚合接口 + `add_image`（pip_face 另加一条圆形蒙版的静音 `add_video`） |
 | 场景特效（转折色差故障、开场模糊、电影画幅…） | 极低频、短时长 | `add_effect` |
 | 音效（pop / ding / whoosh / click / error / success） | 挂在 beat 上，在花字弹出、全屏图切入、金句的瞬间响一下；自动裁到最有力的 0.4-0.9 秒，双轨避免撞车 | `add_audio` |
 | 背景音乐选曲（Lo-Fi / 软垫乐 / 轻快口播 / 不加） | 按内容气质选，全片 12% 音量铺满（短曲自动循环、首尾淡入淡出） | `add_audio` |
@@ -56,7 +60,7 @@
 
 ```bash
 cp .env.example .env   # 填 LLM_API_KEY / VECTCUT_API_KEY / GROQ_API_KEY（其余可选）
-npm test               # 36 个单测 + mock 端到端
+npm test               # 60 个单测 + mock 端到端
 
 # 只出方案不花钱：dry-run 生成 plan.json + ops.json
 node src/cli.js \
@@ -70,8 +74,14 @@ node src/cli.js \
 # 正式生成草稿（并云渲染）
 node src/cli.js --video ... --audio ... --script ./script.txt --render
 
-# 渲染后自动审片：抽帧拼图 + Gemini 视觉打分（hook / 可读性 / 遮脸 / 安全区 / 节奏 / 风格），输出 review.json
+# 渲染后自动审片：ffprobe 门禁 + 抽帧拼图 + Gemini 视觉打分（hook / 可读性 / 遮脸 / 安全区 / 节奏 / 风格），输出 review.json
 node src/cli.js --video ... --audio ... --script ./script.txt --review
+
+# 审片判 fix 就自动修一轮：问题回灌导演 → 重做 plan → 重渲 → 再审（首版留在 out/<dir>/v1/）
+node src/cli.js --video ... --audio ... --script ./script.txt --fix
+
+# 跳过开拍前的素材检查（默认会抽一帧让 Gemini 看人脸位置 / 字幕区是否杂乱 / 衣着颜色）
+node src/cli.js ... --no-inspect
 
 # 固定一首 BGM / 关掉 BGM / 调音量（线性值）
 node src/cli.js ... --bgm https://assets.mixkit.co/music/764/764.mp3 --bgm-volume 0.12 --sfx-volume 0.5
@@ -135,9 +145,10 @@ AI 不写秒数，只引用字幕片段 id；时间由代码从对齐结果解�
 src/
   asr/            Groq Whisper（默认）、字符级对齐、外部逐字对照适配、VectCut ASR 兜底、（可选）去气口
   timeline/       任意 ASR 输出归一化、短句切片器
-  layout/         人物框 → VectCut 中心坐标系像素位置、推镜锚点
-  director/       效果词表、音效/BGM 素材库、Plan schema、prompt（加载 SKILL.md + 节奏预算）、planner（校验+修复循环）、lint
-  review.js       渲染后 QC：抽帧 → contact sheet → 视觉审片
+  layout/         人物框 → VectCut 中心坐标系像素位置、构图等级、pip_face 圆窗几何、推镜锚点
+  director/       效果词表、音效/BGM 素材库、Plan schema、prompt（加载 SKILL.md + 密度感知的节奏预算）、planner（校验+修复循环）、lint
+  inspect.js      开拍前：抽帧 → Gemini 看人脸框 / 字幕区是否杂乱 / 衣着颜色
+  review.js       渲染后 QC：ffprobe 门禁 → 抽帧 → contact sheet → 视觉审片（硬性上限 + 承诺核对）
   providers/      llm/gemini（默认，原生 generateContent）+ openai-compatible 备用、image（VectCut 聚合 / OpenAI-compatible）
   vectcut/        真实 API 客户端、Plan→操作编译器、执行器（fallback/dry-run）、缩放换算
   pipeline.js     编排
@@ -164,6 +175,7 @@ docs/             architecture.md（模块细节）、inputs.md（输入清单�
 - [x] 逐字对照：Groq Whisper + 字符级对齐为默认（27s 口播 5s 出结果、98% 对齐）；VectCut sta 模式作为无 Groq 时的兜底
 - [x] 导演技能包：把口播剪辑的行业经验（hook 优先、按转折打断、推镜/B-roll/音效硬指标）写成 SKILL.md 直接作为系统提示，lint 用同一套数字守门
 - [x] 视觉审片：`--review` 渲染后抽帧拼图给 Gemini，检查 hook / 可读性 / 遮脸 / 安全区 / 节奏 / 风格一致并给出按秒数的修法
+- [x] 第三轮调研落地：近景 `pip_face`（全屏图 + 圆形人物小窗）、开拍前素材检查、白 + 一个强调色、单一 apex 花字、结尾留人脸、字幕提前 120ms、ffprobe 门禁、`--fix` 审片回灌修订
 - [ ] 审片结果回灌导演自动重剪（Reviewer → Director 闭环）
 - [ ] 字在人后（`submit_remove_bg_text_behind_task`）作为 opening hook 选项
 - [ ] 多条成片的风格记忆（同账号统一色系与花字）

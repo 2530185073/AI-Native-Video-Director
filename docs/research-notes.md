@@ -29,12 +29,34 @@
 | 声音 | 提示词里写了对应关系 | lint 强制的音效语法 |
 | 质检 | `query_script` 校验草稿结构 | + 成片抽帧拼图 + 视觉审片（hook / 可读性 / 遮脸 / 安全区 / 节奏 / 风格一致，附带按秒数的修法） |
 
+## 2b. 第三轮调研（针对翡翠 v8 审片暴露的问题）
+
+v8 审片给出的三条问题——近景大头像上的 `lower_card` 太小、花字三种颜色、印花衣服让字幕发糊——都指向“导演知道规则，但看不到画面”。第三轮专门查了紧构图处理、配色体系、杂乱背景字幕、数字人口播包装、剪映智能包装、开源 Skill 和 VLM 审片闭环。
+
+| # | 结论 | 来源 | 落地 |
+| --- | --- | --- | --- |
+| 13 | **近景口播的标准解法是“全屏图 + 人物缩成左上角圆形小窗”**，脸负责 hook 和结论，图负责事实/数据/结构；小窗直径 20-30% 画宽（300px/1080 实测），整个头含下巴要在圆内；所有图形内容避开左上小窗和底部字幕带 | Vibetool/talking-head-video（口播 Claude Skill，实测 pipeline）、Versely PiP 指南、HyperFrames `/talking-head-recut`（pip 布局表） | `layout.framing`（tight/medium/wide）+ `pip_face` 布局（`facePip()`：圆形 mask、缩放、位移全部落在 SAFE_ZONE 内，直径 0.30）；compiler 发两条 op（全屏图 + 静音圆窗视频副本）；lint 把 tight 构图里 <40% 宽的卡片升级为 pip_face；prompt 按 framing 给布局建议 |
+| 14 | **文字颜色体系 = 白 + 一个强调色**；30 秒视频最多两种强调样式；高亮词 ≤ 整句 40%；三色法则里“强调色点到为止” | CutFast《字幕强调样式 2026》、Taption、FineReport 三色法则、hahow 60-30-10 | lint `punchPalette`：纯色花字只能是白或 highlightColor，越界改回强调色；SKILL 第 1.2 节写明；prompt 输出要求里限定 color 取值 |
+| 15 | **复杂背景下底条比阴影稳**：黑 `#000000` 35-60% + 圆角；“画面太花字幕看不清”是可读性里最常见也最好解的问题 | mikihands《字幕美化 10 种组合》、SunoMV 字幕方法论、Taption、VideoCaptioner 视觉避让 | `inspectSource` 开拍前抽帧让 Gemini 看字幕区是否杂乱（印花衣服/花纹墙）；lint 据此自动开 55% 黑底条；prompt 里告知导演“字幕区杂乱，花字避开” |
+| 16 | **强调阶梯**（quiet → loud）：seam caption → pill → highlight bar → headline → glow word，选能解决问题的最轻一级；glow word 全片最多一次；不在同一帧叠两个响的 | nopefallacy/vertical-video-editing-skills（editorial-look §composition rules） | SKILL 第 1.4 节“强调阶梯”：字幕高亮 → 白花字 → 强调色花字 → center 大字 → 特效 |
+| 17 | **一个 APEX，其余是 MINOR**：最大的那个 hero 独享全套展示，其余只做加大的强调行；“把每个词都做成 hero 是最常见的错误”；hero 之间至少一拍空气 | HyperFrames `/embedded-captions` | lint `apexPunch`：多个花字同为最大字号时，只留一个（优先 ding/success 音效、其次含数字、再其次最早），其余降 3 号；prompt 节奏预算里写明 |
+| 18 | **基准节奏 × 信息密度**：<60 秒 6-8 秒一张卡，数字/列表多 ×0.7、慢故事 ×1.5 | HyperFrames `/talking-head-recut` 第 6 步 | `scriptDensity()` 统计数字、列表词（第一/其次/最后）、对比词（不是…而是/其实/注意）、价格词，每分钟 ≥14 为 high（预算 ×1.3）、≤5 为 low（×0.7）；`rhythmBudget` 输出密度等级和理由 |
+| 19 | **脸在面板里必须完整居中**（眼睛在上三分之一），被接缝/字幕/边缘切到脸是 gate failure；PiP 进出用 0.5-0.7 秒 `power2.inOut` | vertical-video-editing-skills（face-safe framing）、talking-head-recut（`#video-wrap` 过渡） | `facePip()` 的 mask 直径 = 1.6 × 脸高（下巴在圆内）；审片 rubric 明确 pip_face 小窗里脸完整即加分；进出动画用 VectCut 渐显/缩小 0.25 秒（VectCut 不支持位移关键帧过渡，见“没采纳”） |
+| 20 | **字幕提前于语音**：文字先出 25% 时长时识别最好（受试者延后作答时）；读者从字幕出现到开始读需 400-760 ms；Netflix 规范允许出点比音频晚 12 帧 | JASA 2023《modality onset asynchrony》、Translation & Interpreting 2025《ghost subtitles》（Liao 眼动数据）、Netflix Timed Text Style Guide | compiler `SUBTITLE_LEAD = 0.12`：每行比首字提前 120 ms 出现，上一行提前让位（不重叠）|
+| 21 | **便宜的门禁先跑，贵的后跑**：代码校验 → 冒烟 → 视觉审片；审片器要“记住上一轮 flag 的问题并逐条确认是否修好”（follow_up）；audit → repair 是闭环不是重试；QC 失败沉淀为持久规则 | Starti.ai《Harness Engineering》、Cinematic Compiler（0.75 阈值 + repair agent）、commercial-creator（lessons.py）、video-production-buddy | `probeRender()`：ffprobe 检查画幅/时长/音轨，不过直接判 fix、不花视觉调用；`--fix`：把 review.issues 回灌导演做一轮修订（brief.reviewFeedback），首版留在 `v1/`；`REVIEW_HARD_CAPS` + `beatChecks` 承诺核对 |
+| 22 | **脸负责 hook 和结论**：“don't make it all graphics — the face carries the hook and the emotional conclusion” | Vibetool/talking-head-video、vertical-video-editing-skills | lint `protectClosing`：覆盖式布局（fullscreen/pip_face）不能压住最后一句——延到最后一句的截断到倒数第二句，从最后一句开始的降级为 lower_card；短图“顺延到下一句”也不再顺延进最后一句 |
+| 23 | **剪映“智能包装”**：一键加字幕 + 音效，AI 按内容自动划重点并给重点词更亮眼的花字 | 剪映专业版发布稿、剪映 AI 原理解析 | 目标一致（字幕 + 划重点 + 花字 + 音效），本项目的差别在决策由读懂稿子的导演模型做，且有 lint/审片兜底；作为对标写入 SKILL 来源 |
+
 ## 3. 有意没采纳的
 
 - **ALL-CAPS / Montserrat Black 风格**：英文特有，中文无大小写；对应的“字重 + 描边 + 高饱和高亮”已经在字幕样式里。
 - **逐词 karaoke 字幕**：我们已有逐字时间戳，可以做；但中文知识口播里“整句 + 1-2 个高亮词”比逐词跳更利于阅读（眼动研究：字幕速度上去后回忆准确率下降），保留为可选方向。
 - **每 2-4 秒一刀的“短视频节奏”**：多篇数据指向这会降低持续观看；数字人素材也没有多机位，可用的是推镜和 B-roll，不是硬切。
 - **Prepublish 的 45-90 秒打断间隔**：那是 10 分钟 YouTube 长视频的参数，30-60 秒口播不适用。
+- **HyperFrames 系的“stacked split”（上半屏 B-roll、下半屏人物）作为默认布局**：需要把主视频裁切并偏移让脸居中，VectCut 的主轨只有整段关键帧（我们用它做推镜），没有“分段裁切 + 位移过渡”；`pip_face` 用第二份视频副本达到同样目的。位移过渡（人物从全屏缩进小窗的 0.6 秒动画）同理暂不做，用 0.25 秒渐显/缩小代替。
+- **人物抠像后把花字嵌到人物身后（embedded captions 的 depth sandwich）**：需要人物 matte，VectCut 无此接口。
+- **ffmpeg 合成的 SFX**（无版权负担）：用户已给出可商用的音效直链，沿用。
+- **每张卡最少 5 张**（talking-head-recut 的下限）：那是“卡片即内容”的图文讲解流派；口播二次包装里人物才是主体，我们反而设上限。
 
 ## 4. 主要来源
 
@@ -52,3 +74,13 @@
 - Ali Abdaal《The Ultimate Guide to YouTube》
 - GitHub：Orkas-AI/Orkas-VideoStudio、plokdalberb-byte/cutible、lamardealmaker/agentic-video-editor、univa-agent/univa
 - 商业产品功能参照：Submagic（Magic Zoom 四种曲线、B-roll 频率滑杆）、OpusClip、剪映智能包装
+
+第三轮新增：
+
+- Skills / 开源：Vibetool/talking-head-video（口播 + 圆形 PiP 头像 + Remotion 知识图卡的 Claude Skill）、nopefallacy/vertical-video-editing-skills（竖屏口播剪辑 SKILL.md：editorial look、camera-moves、SFX、verify gate）、heygen-com/hyperframes 的 `/talking-head-recut` 与 `/embedded-captions` 技能、FMXExpress/OpenMontage、video-production-buddy/织影、cxbxmxcx/commercial-creator
+- 审片闭环：Starti.ai《Harness Engineering for Video Agents》（三道门禁 + 视觉审片 follow_up）、Cinematic Compiler（Devpost，audit → repair loop 数据）、《Fixing AI Visual Consistency with VLMs》
+- 配色与字幕：CutFast《短视频字幕强调样式 2026 方法论》、mikihands《字幕·标题美化的 10 种色彩描边阴影组合》、Taption《短影音字幕设计 5 技巧》、SunoMV《歌词字幕样式与时间轴方法论》、FineReport 三色法则、hahow 60-30-10、VideoCaptioner 视觉避让、Aegisub 排版指南
+- PiP：Versely《Video Overlays: Picture-in-Picture for UGC and Reactions》、ChatSlide《Talking-Head Video with B-Roll and an AI Avatar》
+- 字幕时序研究：Zekveld 等 / JASA 2023《The effect of modality onset asynchrony and processing time on the recognition of text-supplemented speech》；Translation & Interpreting 17(2) 2025《Busting "ghost subtitles" on streaming services》；Netflix Timed Text Style Guide；Subtitling.net《Subtitle Timing》
+- 数字人口播包装：火山引擎《自媒体数字人口播全流程工具搭配》、扣子《制作数字人口播视频》、18183《AI 数字人口播制作教程》、aistacknav《剪映/CapCut AI 全流程》
+- 剪映：剪映专业版升级发布稿（智能包装）、《剪映 AI 剪辑原理全解析》
