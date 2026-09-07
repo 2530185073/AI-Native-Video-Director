@@ -1,0 +1,145 @@
+#!/usr/bin/env node
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { loadEnvFile } from './config.js';
+import { directSecondCut } from './pipeline.js';
+import { createLLM } from './providers/llm/openai-compatible.js';
+import { createImageProvider } from './providers/image/index.js';
+import { createVectCutClient } from './vectcut/client.js';
+
+const HELP = `AI Native Video Director — 数字人口播二次精剪
+
+用法:
+  node src/cli.js --video <mp4 url> --audio <mp3 url> --script <文案.txt> [选项]
+
+必填:
+  --video URL          初版成片 mp4（可公网访问的链接）
+  --script FILE|TEXT   原始口播文案（文件路径或直接文本）
+
+可选:
+  --audio URL          文案对应的 mp3；不传则用视频做 ASR
+  --words FILE         已有的逐字时间戳 JSON/SRT（跳过 ASR）
+  --brief FILE         需求简报 JSON（平台/受众/目的/品牌色/风格）
+  --person x,y,w,h     数字人在画面中的位置框（0-1 比例或像素）
+  --face x,y,w,h       脸部位置框（可选，默认从人物框推算）
+  --canvas WxH         画幅，默认 1080x1920
+  --bgm URL            背景音乐（可选）
+  --replace-audio      用 mp3 替换视频原声
+  --from-plan FILE     直接使用已审核的 plan.json，跳过 LLM
+  --name NAME          草稿名
+  --render             生成草稿后提交云渲染并等待结果
+  --resolution 1080P   渲染分辨率（默认 1080P）
+  --dry-run            只生成 plan 与操作列表，不调用 VectCut
+  --out DIR            输出目录（默认 ./out/<时间戳>）
+  --env FILE           .env 路径（默认 ./.env）
+  -h, --help           帮助
+
+环境变量见 .env.example。`;
+
+function parseArgs(argv) {
+  const args = { _: [] };
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    if (!token.startsWith('--') && token !== '-h') { args._.push(token); continue; }
+    const key = token.replace(/^--?/, '');
+    const next = argv[index + 1];
+    if (next === undefined || next.startsWith('--')) args[key] = true;
+    else { args[key] = next; index += 1; }
+  }
+  return args;
+}
+
+function readMaybeFile(value) {
+  if (!value) return undefined;
+  try {
+    return readFileSync(resolve(String(value)), 'utf8');
+  } catch {
+    return String(value);
+  }
+}
+
+function parseBox(value) {
+  if (!value) return undefined;
+  const parts = String(value).split(/[,\s]+/).map(Number);
+  if (parts.length !== 4 || parts.some(part => !Number.isFinite(part))) throw new Error(`invalid box: ${value} (expected x,y,w,h)`);
+  return { x: parts[0], y: parts[1], w: parts[2], h: parts[3] };
+}
+
+function parseCanvas(value) {
+  if (!value) return undefined;
+  const match = /^(\d+)\s*[x×]\s*(\d+)$/.exec(String(value));
+  if (!match) throw new Error(`invalid canvas: ${value}`);
+  return { width: Number(match[1]), height: Number(match[2]) };
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  if (args.h || args.help || (!args.video && !args._.length)) {
+    console.log(HELP);
+    process.exit(args.video ? 0 : 1);
+  }
+  loadEnvFile(args.env || '.env');
+
+  const script = readMaybeFile(args.script);
+  if (!script) throw new Error('--script is required');
+  const words = args.words ? JSON.parse(readFileSync(resolve(args.words), 'utf8')) : undefined;
+  const brief = args.brief ? JSON.parse(readFileSync(resolve(args.brief), 'utf8')) : undefined;
+  const dryRun = Boolean(args['dry-run']);
+  const outDir = resolve(args.out || join('out', new Date().toISOString().replace(/[:.]/g, '-')));
+  mkdirSync(outDir, { recursive: true });
+
+  const logger = message => console.error(`[director] ${message}`);
+
+  let llm;
+  if (args['from-plan']) {
+    const plan = JSON.parse(readFileSync(resolve(args['from-plan']), 'utf8'));
+    llm = { generateJson: async () => ({ data: plan, mode: 'from-plan' }) };
+  } else {
+    llm = createLLM();
+  }
+
+  const vectcut = dryRun ? null : createVectCutClient({ logger: message => logger(`vectcut ${message}`) });
+  const imageProvider = dryRun ? null : createImageProvider({ client: vectcut });
+
+  try {
+    const result = await directSecondCut({
+      videoUrl: args.video,
+      audioUrl: args.audio,
+      script,
+      words,
+      brief,
+      person: parseBox(args.person),
+      face: parseBox(args.face),
+      canvas: parseCanvas(args.canvas),
+      bgmUrl: args.bgm,
+      replaceAudio: Boolean(args['replace-audio']),
+      name: args.name,
+      render: Boolean(args.render),
+      renderOptions: { resolution: args.resolution || '1080P' },
+      dryRun
+    }, { llm, vectcut, imageProvider, logger });
+
+    writeFileSync(join(outDir, 'chunks.json'), JSON.stringify(result.chunks, null, 2));
+    writeFileSync(join(outDir, 'plan.json'), JSON.stringify(result.plan, null, 2));
+    writeFileSync(join(outDir, 'ops.json'), JSON.stringify(result.ops, null, 2));
+    writeFileSync(join(outDir, 'result.json'), JSON.stringify({ ...result, chunks: undefined, ops: undefined }, null, 2));
+
+    console.log(JSON.stringify({
+      outDir,
+      concept: result.plan.concept,
+      chunks: result.chunks.length,
+      beats: result.plan.beats.length,
+      lintWarnings: result.lintWarnings,
+      draft: result.draft,
+      render: result.render ? { status: result.render.status, url: result.render.result } : null
+    }, null, 2));
+  } catch (error) {
+    logger(`failed: ${error.message}`);
+    if (error.errors) logger(error.errors.join('\n'));
+    if (error.lastPlan) writeFileSync(join(outDir, 'plan.invalid.json'), JSON.stringify(error.lastPlan, null, 2));
+    if (error.draftId) logger(`partial draft: ${error.draftId} ${error.draftUrl || ''}`);
+    process.exit(1);
+  }
+}
+
+main();

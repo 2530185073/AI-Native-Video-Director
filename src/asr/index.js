@@ -1,6 +1,8 @@
-export { alignReferenceWithWhisper, splitReferenceIntoSentences, whisperResponseToSrt } from './alignment.js';
+export { alignReferenceWithWhisper, alignScriptCharacters, splitReferenceIntoSentences, whisperResponseToSrt } from './alignment.js';
 export { planDebreath, remapCues, remapSrt } from './debreath.js';
+export { alignWithExternalService } from './external.js';
 export { processAsrSubtitles } from './pipeline.js';
+export { getWordTimeline } from './timeline.js';
 export {
   cuesToSrt,
   mergePlainTextIntoCues,

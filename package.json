@@ -1,12 +1,18 @@
 {
   "name": "ai-native-video-director",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
+  "description": "AI 导演驱动的数字人口播二次精剪：ASR 逐字时间轴 → AI 决策 → VectCut 草稿/云渲染",
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
+  "bin": {
+    "ai-director": "src/cli.js"
+  },
+  "exports": "./src/index.js",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test 'test/*.test.js'",
+    "director": "node src/cli.js"
   }
 }

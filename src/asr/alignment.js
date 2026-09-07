@@ -72,7 +72,8 @@ function computeAlignment(referenceUnits, whisperUnits) {
   const columns = whisperUnits.length;
   if (!rows || !columns) return new Array(rows).fill(null);
 
-  const dp = Array.from({ length: rows + 1 }, () => new Array(columns + 1).fill(0));
+  // Typed rows keep a 2000x2000 alignment (10+ minute scripts) within a few MB.
+  const dp = Array.from({ length: rows + 1 }, () => new Int32Array(columns + 1));
   for (let row = 1; row <= rows; row += 1) dp[row][0] = row;
   for (let column = 1; column <= columns; column += 1) dp[0][column] = column;
 
@@ -165,6 +166,44 @@ function aggregateSentenceTimings(sentences, referenceUnits, whisperUnits, mappi
       matchedChars: sentenceTimings.length
     };
   });
+}
+
+/**
+ * Character-level alignment of a script against word timestamps.
+ *
+ * Returns one entry per script character (punctuation and whitespace included so
+ * indices line up with the original string). Alignable characters that matched an
+ * ASR character carry `start`/`end`; everything else has `null` timing and the
+ * caller decides how to interpolate.
+ */
+export function alignScriptCharacters(script, words) {
+  const text = String(script || '');
+  const chars = Array.from(text);
+  const referenceUnits = [];
+  chars.forEach((char, index) => {
+    if (!char.trim() || SKIPPED_CHARS.has(char)) return;
+    referenceUnits.push({ sentenceIndex: 0, charIndex: index, char, norm: normalizeChar(char) });
+  });
+  const whisperUnits = buildWhisperUnits(Array.isArray(words) ? words : words?.words || []);
+  const mapping = computeAlignment(referenceUnits, whisperUnits);
+
+  const result = chars.map(char => ({ char, start: null, end: null, alignable: false }));
+  referenceUnits.forEach((unit, referenceIndex) => {
+    const target = result[unit.charIndex];
+    target.alignable = true;
+    const whisperIndex = mapping[referenceIndex];
+    if (whisperIndex == null) return;
+    const whisperUnit = whisperUnits[whisperIndex];
+    target.start = whisperUnit.start;
+    target.end = whisperUnit.end;
+  });
+
+  const alignable = result.filter(entry => entry.alignable);
+  const matched = alignable.filter(entry => entry.start != null);
+  return {
+    characters: result,
+    coverage: alignable.length ? matched.length / alignable.length : 1
+  };
 }
 
 export function alignReferenceWithWhisper(referenceText, whisperWords) {
