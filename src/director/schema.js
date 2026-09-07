@@ -91,11 +91,11 @@ export function buildPlanSchema(catalog = CATALOG) {
             outro: { type: ['string', 'null'], enum: [...names(catalog.textOutro), ...names(catalog.imageOutro), null] },
             loop: { type: ['string', 'null'], enum: [...names(catalog.textLoop), null] },
             position: { type: ['string', 'null'], enum: [...names(catalog.punchPositions), null] },
-            scale: { type: 'number', minimum: 1.03, maximum: 1.35 },
-            prompt: { type: 'string', minLength: 6, maxLength: 400 },
-            layout: { type: ['string', 'null'], enum: [...names(catalog.brollLayouts), null] },
+            scale: { type: 'number', minimum: 1.03, maximum: 1.35, description: 'zoom 必填，推镜倍率 1.03-1.35，常用 1.08-1.15' },
+            prompt: { type: 'string', minLength: 6, maxLength: 400, description: 'broll 必填，生图提示词，写实物/场景，禁止出现文字' },
+            layout: { type: ['string', 'null'], enum: [...names(catalog.brollLayouts), null], description: 'broll 必填：card_top / fullscreen / pip_side / lower_card' },
             imageIntro: { type: ['string', 'null'], enum: [...names(catalog.imageIntro), null] },
-            name: { type: ['string', 'null'], enum: [...names(catalog.sceneEffects), null] },
+            name: { type: ['string', 'null'], enum: [...names(catalog.sceneEffects), null], description: 'effect 必填，场景特效名，从词表选' },
             sfx: { type: ['string', 'null'], enum: [...(catalog.sfx || []).map(item => item.id), null] }
           }
         }

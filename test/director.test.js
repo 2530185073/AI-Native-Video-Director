@@ -6,6 +6,46 @@ import { createEditingPlan, normalizePlan } from '../src/director/planner.js';
 import { simplifySchema, extractJson } from '../src/providers/llm/openai-compatible.js';
 import { fixture, samplePlan, mockLLM } from './helpers/fixture.js';
 
+test('normalizePlan fills Gemini-omitted type fields and sanitizes wild chunk ids', () => {
+  const { chunks } = fixture();
+  const raw = {
+    concept: '测试包装策略文案',
+    tone: 'not-a-real-tone',
+    subtitleStyle: samplePlan(chunks).subtitleStyle,
+    bgm: 'lofi_clean',
+    chunks: [],
+    beats: [
+      { type: 'zoom', reason: '开场轻推', fromChunk: 1, toChunk: 2 },
+      { type: 'broll', reason: '右侧展示翡翠细节', fromChunk: 2, toChunk: 3 },
+      { type: 'effect', reason: '开场进场', fromChunk: 1, toChunk: 1 },
+      { type: 'punch', reason: '结论', chunkId: 3, text: '分开看' },
+      { type: 'zoom', reason: '坏 id', fromChunk: 3.48e99, toChunk: 3.48e99 }
+    ]
+  };
+  const plan = normalizePlan(structuredClone(raw), chunks);
+  assert.equal(plan.tone, 'energetic');
+  assert.deepEqual(plan.bgm, { track: 'lofi_clean', reason: '模型直接给出曲目' });
+  assert.equal(plan.chunks.length, chunks.length);
+
+  const zoom = plan.beats.find(beat => beat.type === 'zoom' && beat.fromChunk === 1);
+  assert.equal(zoom.scale, 1.12);
+
+  const broll = plan.beats.find(beat => beat.type === 'broll');
+  assert.equal(broll.layout, 'pip_side');
+  assert.ok(broll.prompt.includes('右侧展示翡翠细节'));
+
+  const effect = plan.beats.find(beat => beat.type === 'effect');
+  assert.ok(effect.name);
+
+  const punch = plan.beats.find(beat => beat.type === 'punch');
+  assert.equal(punch.color, plan.subtitleStyle.highlightColor);
+  assert.equal(punch.position, 'above_head');
+
+  const wild = plan.beats.find(beat => beat.type === 'zoom' && beat.reason === '坏 id');
+  assert.equal(wild.fromChunk, chunks.at(-1).id);
+  assert.equal(validatePlan(plan, { chunks }).length, 0);
+});
+
 test('a well-formed plan validates; catalog violations and bad references are caught', () => {
   const { chunks } = fixture();
   const plan = samplePlan(chunks);
@@ -119,9 +159,9 @@ test('planner repairs an invalid first answer and returns a linted plan', async 
 test('planner gives up with a descriptive error after maxAttempts', async () => {
   const { chunks, layout, duration, script } = fixture();
   const broken = samplePlan(chunks);
-  broken.tone = 'sleepy';
+  broken.beats[0].intro = '不存在的动画';
   await assert.rejects(
-    () => createEditingPlan({ llm: mockLLM([broken]), chunks, script, duration, layout, maxAttempts: 2 }),
+    () => createEditingPlan({ llm: mockLLM([broken, broken]), chunks, script, duration, layout, maxAttempts: 2 }),
     error => error.message.includes('after 2 attempts') && Array.isArray(error.errors)
   );
 });

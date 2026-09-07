@@ -81,10 +81,11 @@ ${describeCatalog(catalog)}
 - chunks：每个片段一个条目，highlights 为要变色/放大的词（可以为空数组），hide 只在极少数需要“留白”的片段设为 true。所有片段都必须出现。
 - beats：punch / zoom / broll / effect 列表。
   - punch：chunkId、text、flowerId（或 null 用纯色）、color（flowerId 为 null 时必填）、fontSize 14-26、intro、loop（或 null）、position、outro（或 null）。
-  - zoom：fromChunk、toChunk、scale。
-  - broll：fromChunk、toChunk、prompt、layout、imageIntro、outro（图片出场动画或 null）。
-  - effect：fromChunk、toChunk、name。
+  - zoom：fromChunk、toChunk、scale（必填，缺 scale 无效）。
+  - broll：fromChunk、toChunk、prompt、layout（prompt 与 layout 都必填）。
+  - effect：fromChunk、toChunk、name（必填，从特效词表选）。
   - 任意 beat 可带 sfx（音效 id 或 null），在 beat 开始的瞬间播放。
+  - 每个 beat 按类型把必填字段写全，不要只写 type 和 reason。
 
 JSON Schema：
 ${JSON.stringify(schema)}`;
