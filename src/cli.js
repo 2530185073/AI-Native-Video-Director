@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { loadEnvFile } from './config.js';
 import { directSecondCut } from './pipeline.js';
+import { createLayout } from './layout/layout.js';
 import { resolveMedia } from './media.js';
 import { reviewRender } from './review.js';
 import { createLLM } from './providers/llm/index.js';
@@ -155,6 +156,7 @@ async function main() {
           outDir,
           llm: reviewer,
           brief,
+          layout: createLayout(result.layout),
           logger
         });
         writeFileSync(join(outDir, 'review.json'), JSON.stringify({ frames: qc.frames, sheet: qc.sheet, review: qc.review }, null, 2));

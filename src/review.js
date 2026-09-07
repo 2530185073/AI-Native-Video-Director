@@ -137,28 +137,43 @@ export async function buildContactSheet({ videoPath, times, outDir, ffmpeg = pro
 export const REVIEW_RUBRIC = `你是短视频审片人。下面是一条数字人口播二次精剪成片的抽帧拼图（从左到右、从上到下按时间排列，每格左上角是秒数），以及导演的包装方案摘要。请像人类审片一样只看画面，按 1-5 分打分（5 = 直接可发）：
 
 - hook：第 1 格是否一眼看出主题（有大字/重点词，人物清晰，无全屏图盖脸）
-- readability：字幕/花字是否清晰可读、没有换行溢出、没有被截断、对比度足够
-- faceClearance：花字、图片、卡片是否都避开了人脸（不压眉毛、不盖嘴）
+- readability：字幕/花字是否清晰可读、没有换行溢出、没有被截断、对比度足够（注意：人物衣服上的印花字母不是字幕，不要当作乱码）
+- faceClearance：花字、图片、卡片是否都避开了人脸（不压眉毛、不盖嘴）。落在胸前（下巴与字幕之间）或头顶留白都是允许的设计位置，不算遮挡
 - safeZone：文字和图片是否离画面顶部 6%、底部 16%、右侧 11% 的平台 UI 遮挡区足够远
 - rhythm：抽帧之间是否有足够变化但不杂乱（不是每格都有花字，也不是每格都一样）
-- styleConsistency：花字颜色/字体/图片风格是否统一
+- styleConsistency：花字颜色/字体/图片风格是否统一、是否贴合内容调性（全片最多 2 种花字样式）
 
-再列出具体问题（引用格子的秒数），每条给一个可执行的修法（例如“3.2s 的花字下移到头顶留白”“12.0s 的图片改成 lower_card”）。输出 JSON：
+方案摘要里的位置是系统根据人脸框实际落位后的位置（例如头顶没空间时 above_head 会落到 chest），请按画面实际效果评判，不要因为位置和字面方案不同而扣分。
+
+再列出具体问题（引用格子的秒数），每条给一个可执行的修法（例如“3.2s 的花字下移到头顶留白”“12.0s 的图片改成 lower_card”“字幕开启半透明底条”）。输出 JSON：
 {"scores":{"hook":1-5,"readability":1-5,"faceClearance":1-5,"safeZone":1-5,"rhythm":1-5,"styleConsistency":1-5},"overall":1-5,"verdict":"ship"|"fix","issues":[{"at":"秒数","problem":"…","fix":"…"}],"summary":"一句话总评"}`;
 
-function summarizePlanForReview(plan, frames) {
+function summarizePlanForReview(plan, frames, layout) {
+  const pct = value => `${Math.round(value * 100)}%`;
   const beats = (plan.beats || []).map(beat => {
-    if (beat.type === 'punch') return `punch「${beat.text}」@chunk${beat.chunkId} ${beat.position || 'above_head'}`;
-    if (beat.type === 'broll') return `broll ${beat.layout} chunk${beat.fromChunk}-${beat.toChunk}`;
+    if (beat.type === 'punch') {
+      const asked = beat.position || 'above_head';
+      const resolved = layout ? layout.punch(asked).resolved : asked;
+      return `punch「${beat.text}」@chunk${beat.chunkId} 位置 ${resolved}${resolved !== asked ? `（方案写的是 ${asked}，因头顶空间不足自动落位）` : ''}`;
+    }
+    if (beat.type === 'broll') {
+      const resolved = layout ? layout.broll(beat.layout).layout : beat.layout;
+      return `broll ${resolved}${resolved !== beat.layout ? `（方案写的是 ${beat.layout}）` : ''} chunk${beat.fromChunk}-${beat.toChunk}`;
+    }
     if (beat.type === 'zoom') return `zoom ×${beat.scale} chunk${beat.fromChunk}-${beat.toChunk}`;
     return `effect ${beat.name} chunk${beat.fromChunk}-${beat.toChunk}`;
   });
-  return [
-    `方案：${plan.concept}`,
+  const lines = [`方案：${plan.concept}`];
+  if (layout?.face) {
+    const face = layout.face;
+    lines.push(`人脸框：横向 ${pct(face.x)}-${pct(face.x + face.w)}，纵向 ${pct(face.y)}-${pct(face.y + face.h)}（头顶留白 ${pct(face.y)}）`);
+  }
+  lines.push(
     `字幕：${plan.subtitleStyle?.font} ${plan.subtitleStyle?.fontSize} 号，高亮色 ${plan.subtitleStyle?.highlightColor}，位置 ${plan.subtitleStyle?.position}`,
     `beats：${beats.join('；')}`,
     `拼图格子（顺序 = 时间）：${frames.map((frame, index) => `#${index + 1} ${frame.time.toFixed(1)}s ${frame.label}`).join('；')}`
-  ].join('\n');
+  );
+  return lines.join('\n');
 }
 
 function parseJson(text) {
@@ -171,10 +186,10 @@ function parseJson(text) {
  * Ask a vision-capable LLM (Gemini native) to grade the contact sheet. Any provider
  * exposing `generateContent({ user, parts, generationConfig })` works.
  */
-export async function reviewContactSheet({ llm, sheetPath, frames, plan, brief }) {
+export async function reviewContactSheet({ llm, sheetPath, frames, plan, brief, layout }) {
   if (!llm || typeof llm.generateContent !== 'function') return null;
   const image = readFileSync(sheetPath).toString('base64');
-  const user = [REVIEW_RUBRIC, '', summarizePlanForReview(plan, frames), brief ? `\n需求简报：${JSON.stringify(brief)}` : ''].join('\n');
+  const user = [REVIEW_RUBRIC, '', summarizePlanForReview(plan, frames, layout), brief ? `\n需求简报：${JSON.stringify(brief)}` : ''].join('\n');
   const result = await llm.generateContent({
     user,
     parts: [{ inline_data: { mime_type: 'image/jpeg', data: image } }],
@@ -188,7 +203,7 @@ export async function reviewContactSheet({ llm, sheetPath, frames, plan, brief }
 /**
  * Full QC pass for a rendered video: download → contact sheet → (optional) vision review.
  */
-export async function reviewRender({ videoUrl, plan, chunks, duration, outDir, llm, brief, logger = () => {}, ffmpeg, fetchImpl }) {
+export async function reviewRender({ videoUrl, plan, chunks, duration, outDir, llm, brief, layout, logger = () => {}, ffmpeg, fetchImpl }) {
   mkdirSync(outDir, { recursive: true });
   const videoPath = join(outDir, 'render.mp4');
   if (!existsSync(videoPath)) {
@@ -204,7 +219,7 @@ export async function reviewRender({ videoUrl, plan, chunks, duration, outDir, l
   logger(`review: contact sheet with ${sheet.frames.length} frames → ${sheet.sheet}`);
   let review = null;
   try {
-    review = await reviewContactSheet({ llm, sheetPath: sheet.sheet, frames: sheet.frames, plan, brief });
+    review = await reviewContactSheet({ llm, sheetPath: sheet.sheet, frames: sheet.frames, plan, brief, layout });
     if (review) logger(`review: ${review.verdict} overall ${review.overall}/5 — ${review.summary}`);
     else logger('review: LLM has no vision entry point, sheet only');
   } catch (error) {
