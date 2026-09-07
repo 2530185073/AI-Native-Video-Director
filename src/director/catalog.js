@@ -121,7 +121,8 @@ export const SUBTITLE_POSITIONS = [
 ];
 
 export const PUNCH_POSITIONS = [
-  { name: 'above_head', hint: '人物头顶上方空白区，默认' },
+  { name: 'above_head', hint: '人物头顶上方空白区，默认（头顶没空间时系统自动改为 chest）' },
+  { name: 'chest', hint: '下巴与字幕之间的胸前位置，近景大头像时最稳' },
   { name: 'beside_face', hint: '脸侧空白（自动选择左右）' },
   { name: 'center', hint: '画面正中，盖住人物，只在 0.6-1.2 秒的爆点用' },
   { name: 'top', hint: '画面顶部安全区' }

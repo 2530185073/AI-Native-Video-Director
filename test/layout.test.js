@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createLayout, SAFE_ZONE } from '../src/layout/layout.js';
-import { computeImageScale } from '../src/vectcut/scale.js';
+import { computeImageScale, SCALE_UNIT } from '../src/vectcut/scale.js';
 
 test('layout converts semantic placements into centre-origin pixels', () => {
   const layout = createLayout({ canvas: { width: 1080, height: 1920 }, person: { x: 0.2, y: 0.2, w: 0.6, h: 0.8 } });
@@ -27,23 +27,35 @@ test('layout converts semantic placements into centre-origin pixels', () => {
   assert.deepEqual([full.widthPx, full.heightPx], [1080, 1920]);
 });
 
-test('layout accepts pixel boxes and falls back to beside_face when there is no head-room', () => {
+test('layout accepts pixel boxes and moves the punch to the chest when there is no head-room', () => {
   const layout = createLayout({ canvas: { width: 1080, height: 1920 }, person: { x: 100, y: 40, w: 880, h: 1880 }, face: { x: 340, y: 60, w: 400, h: 420 } });
   assert.ok(layout.face.y < 0.1);
   const punch = layout.punch('above_head');
-  assert.ok(punch.side, 'should have fallen back to a side placement');
+  assert.equal(punch.resolved, 'chest');
+  const y = 0.5 - punch.transform_y_px / (2 * 1920);
+  const chin = layout.face.y + layout.face.h;
+  assert.ok(y - 0.035 > chin, `chest punch (${y}) sits below the chin (${chin})`);
+  assert.ok(y + 0.035 < layout.subtitle('lower_third').yFraction, 'and above the subtitle line');
+
+  // No room above the head *or* between chin and subtitles → beside the face.
+  const cramped = createLayout({ person: { x: 0, y: 0, w: 1, h: 1 }, face: { x: 0.3, y: 0.05, w: 0.4, h: 0.66 } });
+  assert.equal(cramped.punch('above_head').resolved, 'beside_face');
+  assert.ok(cramped.punch('above_head').side);
 });
 
 test('tight close-up framing: overlays adapt to the measured free space', () => {
   // Real clip: head fills 28%-72% of the width and starts 14.5% from the top.
   const layout = createLayout({ person: { x: 0.05, y: 0.13, w: 0.9, h: 0.87 }, face: { x: 0.28, y: 0.145, w: 0.44, h: 0.385 } });
 
+  // 14.5% of headroom minus the 6% UI band cannot hold a 6.5%-tall word, so the big word goes to the chest.
   const punch = layout.punch('above_head');
+  assert.equal(punch.resolved, 'chest');
   const punchY = 0.5 - punch.transform_y_px / (2 * 1920);
-  assert.ok(punchY + 0.03 < layout.face.y, `punch (${punchY}) must clear the hairline (${layout.face.y})`);
-
   const subtitle = layout.subtitle('lower_third');
   assert.ok(subtitle.yFraction >= 0.7, 'subtitle goes below the chin');
+  assert.ok(punchY - 0.035 > layout.face.y + layout.face.h, `punch (${punchY}) must clear the chin`);
+  assert.ok(punchY + 0.035 < subtitle.yFraction, `punch (${punchY}) must clear the subtitle (${subtitle.yFraction})`);
+  assert.equal(layout.punch('top').resolved, 'top');
 
   // 42%-wide side picture would cover the cheek: only ~24% is free on the right, so it moves under the chin.
   const pip = layout.broll('pip_side');
@@ -96,11 +108,15 @@ test('zoom anchor keeps the face in place while scaling', () => {
   assert.equal(anchor.position_x_px, 0);
 });
 
-test('image scale is relative to the fitted size on the canvas', () => {
+test('image scale is relative to the fitted size on the canvas, in VectCut half-canvas units', () => {
   const canvas = { width: 1080, height: 1920 };
-  // 16:9 image fitted inside a 9:16 canvas has width 1080. Target 864px wide => 0.8.
-  assert.equal(computeImageScale({ image: { width: 1376, height: 768 }, canvas, target: { widthPx: 864, heightPx: 486 }, fit: 'contain' }), 0.8);
+  assert.equal(SCALE_UNIT, 2);
+  // 16:9 image fitted inside a 9:16 canvas has width 1080. Target 864px wide => 0.8 × unit.
+  assert.equal(computeImageScale({ image: { width: 1376, height: 768 }, canvas, target: { widthPx: 864, heightPx: 486 }, fit: 'contain' }), 1.6);
+  assert.equal(computeImageScale({ image: { width: 1376, height: 768 }, canvas, target: { widthPx: 864, heightPx: 486 }, fit: 'contain', unit: 1 }), 0.8);
   // 768x1376 is slightly narrower than 9:16; fitted height is 1920, width 1071.6 => cover needs 1080/1071.6.
-  assert.equal(computeImageScale({ image: { width: 768, height: 1376 }, canvas, target: { widthPx: 1080, heightPx: 1920 }, fit: 'cover' }), 1.008);
-  assert.equal(computeImageScale({ image: null, canvas, target: { widthPx: 1, heightPx: 1 } }), 1);
+  assert.equal(computeImageScale({ image: { width: 768, height: 1376 }, canvas, target: { widthPx: 1080, heightPx: 1920 }, fit: 'cover' }), 2.016);
+  assert.equal(computeImageScale({ image: null, canvas, target: { widthPx: 1, heightPx: 1 } }), SCALE_UNIT);
+  // Regression from the 翡翠 renders: a 529px lower_card from a 1376x768 image came out 265px wide at 0.49.
+  assert.equal(computeImageScale({ image: { width: 1376, height: 768 }, canvas, target: { widthPx: 529, heightPx: 298 }, fit: 'contain' }), 0.98);
 });

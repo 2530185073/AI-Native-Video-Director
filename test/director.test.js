@@ -163,6 +163,31 @@ test('lint applies the editing doctrine: hook stays on the face, zooms breathe, 
   assert.equal(validatePlan(linted, { chunks }).length, 0, 'linted plan is still schema-valid (--from-plan round trip)');
 });
 
+test('lint unifies punch looks and keeps big words off the pictures', () => {
+  const { chunks, layout, duration } = fixture();
+  const plan = samplePlan(chunks);
+  const punch = (chunkId, style, position = 'above_head') => ({ type: 'punch', chunkId, text: chunks[chunkId - 1].text.slice(0, 2), fontSize: 18, intro: '弹入', loop: null, position, outro: null, sfx: null, reason: 'big word here', ...style });
+  plan.beats = [
+    punch(2, { flowerId: 'W0BpSlRRRldCZlhQTFpAaERcUw==', color: null }),
+    punch(4, { flowerId: 'W0BpSlRRRldCZlhQTFpAaERcUw==', color: null }),
+    punch(6, { flowerId: 'W0BmQFNaQVJBbFlRTVlLbkBdUA==', color: null }),
+    punch(8, { flowerId: null, color: '#3366FF' }),
+    punch(10, { flowerId: null, color: '#FFFFFF' }, 'chest'),
+    { type: 'broll', fromChunk: 10, toChunk: 11, prompt: '一枚银元特写照片，写实', layout: 'lower_card', imageIntro: '放大', outro: null, sfx: null, reason: 'data card' }
+  ];
+  const { plan: linted, warnings } = lintPlan(plan, { chunks, layout, duration, limits: { ...DEFAULT_LIMITS, punchPerMinute: 30 } });
+  const punches = linted.beats.filter(beat => beat.type === 'punch');
+  assert.equal(punches.length, 5);
+  const looks = new Set(punches.map(beat => beat.flowerId || beat.color));
+  assert.ok(looks.size <= 2, `expected ≤2 looks, got ${[...looks]}`);
+  assert.ok(punches.filter(beat => beat.flowerId === 'W0BpSlRRRldCZlhQTFpAaERcUw==').length >= 4, 'strays restyled to the dominant flower');
+  assert.ok(warnings.some(warning => warning.includes('different looks')));
+
+  const onCard = punches.find(beat => beat.chunkId === 10);
+  assert.equal(onCard.position, 'top', 'a chest punch over a lower_card picture moves to the top');
+  assert.ok(warnings.some(warning => warning.includes('lower_card picture')));
+});
+
 test('schema simplification keeps structure and drops validation-only keywords', () => {
   const simplified = simplifySchema(buildPlanSchema());
   const json = JSON.stringify(simplified);

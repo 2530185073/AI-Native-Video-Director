@@ -21,6 +21,8 @@ export const DEFAULT_LIMITS = {
   sfxPerMinute: 8,
   minSfxGapSeconds: 0.7,
   maxHighlightRatio: 0.6,
+  // Distinct punch looks (flower preset or colour) per video; three or more reads as random.
+  maxPunchStyles: 2,
   // Longest stretch with no visual change before a gentle "keep the frame alive" push is added.
   maxStaticSeconds: 8,
   staticFillScale: 1.08,
@@ -243,13 +245,45 @@ export function lintPlan(plan, { chunks, layout, duration, limits = DEFAULT_LIMI
     warnings.push(`broll covered ${before.toFixed(1)}s of ${totalDuration.toFixed(1)}s (> ${Math.round(limits.maxBrollRatio * 100)}%); thinned to ${brollSeconds(beats).toFixed(1)}s so the speaker stays on screen`);
   }
 
-  // 6. A punch and a fullscreen B-roll at the same time: lift the punch to the top.
-  const fullscreen = beats.filter(beat => beat.type === 'broll' && beat.layout === 'fullscreen');
+  // 5c. One or two punch looks per video. Keep the most used ones, restyle the strays.
+  const punchStyleKey = beat => (beat.flowerId ? `flower:${beat.flowerId}` : `color:${String(beat.color || '').toLowerCase()}`);
+  const styleCounts = new Map();
   for (const beat of beats) {
     if (beat.type !== 'punch') continue;
-    if (fullscreen.some(other => overlaps(other._range, beat._range)) && beat.position !== 'top') {
+    styleCounts.set(punchStyleKey(beat), (styleCounts.get(punchStyleKey(beat)) || 0) + 1);
+  }
+  if (limits.maxPunchStyles && styleCounts.size > limits.maxPunchStyles) {
+    const ranked = [...styleCounts.entries()].sort((a, b) => b[1] - a[1]).map(([key]) => key);
+    const keep = new Set(ranked.slice(0, limits.maxPunchStyles));
+    const primary = beats.find(beat => beat.type === 'punch' && punchStyleKey(beat) === ranked[0]);
+    let restyled = 0;
+    for (const beat of beats) {
+      if (beat.type !== 'punch' || keep.has(punchStyleKey(beat))) continue;
+      beat.flowerId = primary.flowerId ?? null;
+      beat.color = primary.color ?? null;
+      restyled += 1;
+    }
+    warnings.push(`punch text used ${styleCounts.size} different looks (> ${limits.maxPunchStyles}); ${restyled} restyled to match the dominant one so the video reads as one design`);
+  }
+
+  // 6. Punch text and B-roll fighting for the same patch of screen: move the word, keep the picture.
+  const brolls = beats.filter(beat => beat.type === 'broll');
+  const resolvedBroll = name => (layout ? layout.broll(name).layout : name);
+  for (const beat of beats) {
+    if (beat.type !== 'punch') continue;
+    const clashing = brolls.filter(other => overlaps(other._range, beat._range));
+    if (!clashing.length) continue;
+    const resolvedPunch = layout ? layout.punch(beat.position || 'above_head').resolved : (beat.position || 'above_head');
+    const zones = new Set(clashing.map(other => resolvedBroll(other.layout)));
+    if (zones.has('fullscreen') && beat.position !== 'top') {
       warnings.push(`punch "${beat.text}" coincides with fullscreen B-roll; moved to top`);
       beat.position = 'top';
+    } else if (zones.has('lower_card') && resolvedPunch === 'chest') {
+      warnings.push(`punch "${beat.text}" would sit on a lower_card picture; moved to top`);
+      beat.position = 'top';
+    } else if (zones.has('card_top') && (resolvedPunch === 'above_head' || resolvedPunch === 'top')) {
+      warnings.push(`punch "${beat.text}" would sit on a card_top picture; moved to chest`);
+      beat.position = 'chest';
     }
   }
 

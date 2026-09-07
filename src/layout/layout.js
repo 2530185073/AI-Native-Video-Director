@@ -76,21 +76,39 @@ export function createLayout({ canvas = { width: 1080, height: 1920 }, person, f
     return { ...toPx(0.5, y), yFraction: y, fixed_width: 0.82 };
   }
 
+  // A punch line at 剪映 size 18-20 is ~6.5% of a 1920 canvas tall.
+  const PUNCH_TEXT_HEIGHT = 0.065;
+  const chin = faceBox.y + faceBox.h;
+  // Band between the chin and the subtitle line where a big word can sit without touching either.
+  const chestBand = { top: chin + 0.02, bottom: subtitleY.lower_third - 0.055 };
+
+  /**
+   * `above_head` needs the whole word to fit between the top UI band and the hairline;
+   * in tight close-ups (face starting < ~15% from the top) it falls back to `chest`
+   * (between chin and subtitles) and only then to `beside_face`. The placement actually
+   * used is returned as `resolved` so lint can reason about collisions with B-roll.
+   */
   function punch(position = 'above_head') {
     const headroom = faceBox.y;
-    if (position === 'above_head' && headroom < 0.14) position = 'beside_face';
-    switch (position) {
+    let resolved = position || 'above_head';
+    if (resolved === 'above_head' && headroom - SAFE_ZONE.top < PUNCH_TEXT_HEIGHT + 0.03) {
+      resolved = chestBand.bottom - chestBand.top >= PUNCH_TEXT_HEIGHT ? 'chest' : 'beside_face';
+    }
+    if (resolved === 'chest' && chestBand.bottom - chestBand.top < PUNCH_TEXT_HEIGHT) resolved = 'beside_face';
+    switch (resolved) {
       case 'beside_face': {
         const x = freeSide === 'right' ? clamp(faceBox.x + faceBox.w + 0.20, 0.55, 0.78) : clamp(faceBox.x - 0.20, 0.22, 0.45);
-        return { ...toPx(x, faceCenterY), side: freeSide, fixed_width: 0.28 };
+        return { ...toPx(x, faceCenterY), side: freeSide, fixed_width: 0.28, resolved };
       }
+      case 'chest':
+        return { ...toPx(0.5, (chestBand.top + chestBand.bottom) / 2), fixed_width: 0.6, resolved };
       case 'center':
-        return { ...toPx(0.5, 0.48), fixed_width: 0.55 };
+        return { ...toPx(0.5, 0.48), fixed_width: 0.55, resolved };
       case 'top':
-        return { ...toPx(0.5, SAFE_ZONE.top + 0.035), fixed_width: 0.55 };
+        return { ...toPx(0.5, SAFE_ZONE.top + 0.035), fixed_width: 0.55, resolved };
       case 'above_head':
       default:
-        return { ...toPx(0.5, clamp(headroom / 2, SAFE_ZONE.top + 0.03, 0.30)), fixed_width: 0.55 };
+        return { ...toPx(0.5, clamp(headroom / 2, SAFE_ZONE.top + 0.03, 0.30)), fixed_width: 0.55, resolved: 'above_head' };
     }
   }
 

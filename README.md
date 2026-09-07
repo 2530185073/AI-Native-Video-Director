@@ -18,14 +18,16 @@
         ▼
  ① 逐字时间轴        文案的每个字 ↔ 音频时间戳（Levenshtein 字符级对齐）
  ② 短句切片          8-14 字一屏、按停顿和标点切，带逐字时间
- ③ AI 导演决策       Gemini 原生 generateContent 结构化输出 → Editing Plan JSON
- ④ 规则审片 lint     高亮必须在字幕里、不遮脸、每分钟密度上限、B-roll 不重叠……
+ ③ AI 导演决策       Gemini 原生 generateContent，系统提示 = skills/talking-head-second-cut/SKILL.md → Editing Plan JSON
+ ④ 规则审片 lint     高亮必须在字幕里、不遮脸、不进平台 UI 遮挡区、前 3 秒不切全屏图、推镜 ≥2s 且间隔 ≥2.5s、
+                    B-roll ≤35% 且全屏 ≥2s、音效语法、>8s 静止段补轻推、每分钟密度上限……
  ⑤ 编译             Plan → VectCut 操作序列（纯函数，可 dry-run 审阅）
  ⑥ 执行             建草稿 / 主视频 / BGM 铺满 / 关键帧推镜 / 批量字幕 / 花字 / 生图 B-roll / 特效 / 音效 / query_script 校验
  ⑦ 云渲染（可选）    generate_video → task_status → mp4
+ ⑧ 视觉审片（可选）  ffmpeg 抽帧（hook / 每个 beat / 中段 / 结尾）拼 contact-sheet.jpg → Gemini 看图打分 review.json
         │
         ▼
-可在剪映里继续改的草稿 + 渲染成片 + plan.json / ops.json 留档
+可在剪映里继续改的草稿 + 渲染成片 + plan.json / ops.json / review.json 留档
 ```
 
 ---
@@ -67,6 +69,9 @@ node src/cli.js \
 
 # 正式生成草稿（并云渲染）
 node src/cli.js --video ... --audio ... --script ./script.txt --render
+
+# 渲染后自动审片：抽帧拼图 + Gemini 视觉打分（hook / 可读性 / 遮脸 / 安全区 / 节奏 / 风格），输出 review.json
+node src/cli.js --video ... --audio ... --script ./script.txt --review
 
 # 固定一首 BGM / 关掉 BGM / 调音量（线性值）
 node src/cli.js ... --bgm https://assets.mixkit.co/music/764/764.mp3 --bgm-volume 0.12 --sfx-volume 0.5
@@ -131,13 +136,15 @@ src/
   asr/            Groq Whisper（默认）、字符级对齐、外部逐字对照适配、VectCut ASR 兜底、（可选）去气口
   timeline/       任意 ASR 输出归一化、短句切片器
   layout/         人物框 → VectCut 中心坐标系像素位置、推镜锚点
-  director/       效果词表、音效/BGM 素材库、Plan schema、系统 prompt、planner（校验+修复循环）、lint
+  director/       效果词表、音效/BGM 素材库、Plan schema、prompt（加载 SKILL.md + 节奏预算）、planner（校验+修复循环）、lint
+  review.js       渲染后 QC：抽帧 → contact sheet → 视觉审片
   providers/      llm/gemini（默认，原生 generateContent）+ openai-compatible 备用、image（VectCut 聚合 / OpenAI-compatible）
   vectcut/        真实 API 客户端、Plan→操作编译器、执行器（fallback/dry-run）、缩放换算
   pipeline.js     编排
   cli.js          命令行
 test/             node:test，全部 mock，不需要任何 key
-docs/             architecture.md（模块细节）、inputs.md（输入清单与“还缺什么”）、asr.md
+skills/           talking-head-second-cut/SKILL.md —— 导演技能本体（决策流程、硬指标、反模式、来源）
+docs/             architecture.md（模块细节）、inputs.md（输入清单与“还缺什么”）、asr.md、research-notes.md（调研结论 → 落地对照）
 ```
 
 ---
@@ -155,6 +162,8 @@ docs/             architecture.md（模块细节）、inputs.md（输入清单�
 - [x] 数字人口播二次精剪 MVP（本仓库）
 - [x] 音效层：AI 在 punch/broll/effect 上挂音效，BGM 选曲 + 12% 铺满
 - [x] 逐字对照：Groq Whisper + 字符级对齐为默认（27s 口播 5s 出结果、98% 对齐）；VectCut sta 模式作为无 Groq 时的兜底
-- [ ] 视觉审片：渲染后抽帧给多模态模型，检查遮挡/可读性/风格一致
+- [x] 导演技能包：把口播剪辑的行业经验（hook 优先、按转折打断、推镜/B-roll/音效硬指标）写成 SKILL.md 直接作为系统提示，lint 用同一套数字守门
+- [x] 视觉审片：`--review` 渲染后抽帧拼图给 Gemini，检查 hook / 可读性 / 遮脸 / 安全区 / 节奏 / 风格一致并给出按秒数的修法
+- [ ] 审片结果回灌导演自动重剪（Reviewer → Director 闭环）
 - [ ] 字在人后（`submit_remove_bg_text_behind_task`）作为 opening hook 选项
 - [ ] 多条成片的风格记忆（同账号统一色系与花字）

@@ -67,11 +67,32 @@ export function reviewTimestamps({ plan, chunks, duration, maxFrames = 12 }) {
   return kept.map(pick => ({ ...pick, time: round1(pick.time) }));
 }
 
-export async function downloadFile(url, target, { fetchImpl = fetch } = {}) {
-  const response = await fetchImpl(url);
-  if (!response.ok || !response.body) throw new Error(`download failed: HTTP ${response.status} ${url}`);
-  await pipeline(Readable.fromWeb(response.body), createWriteStream(target));
-  return target;
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Fresh render URLs on the OSS CDN occasionally refuse the first connection from
+ * Node's fetch; retry with backoff, then fall back to curl when it is on PATH.
+ */
+export async function downloadFile(url, target, { fetchImpl = fetch, attempts = 3, curl = process.env.CURL_PATH || 'curl' } = {}) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const response = await fetchImpl(url);
+      if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
+      await pipeline(Readable.fromWeb(response.body), createWriteStream(target));
+      return target;
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) await sleep(1500 * attempt);
+    }
+  }
+  try {
+    await run(curl, ['-sSL', '--fail', '--max-time', '600', '-o', target, url]);
+    return target;
+  } catch (error) {
+    if (error.code !== 'ENOENT') lastError = error;
+  }
+  throw new Error(`download failed: ${lastError?.cause?.code || lastError?.cause?.message || lastError?.message} ${url.slice(0, 120)}`);
 }
 
 /**
