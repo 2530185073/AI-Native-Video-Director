@@ -7,8 +7,8 @@
 | 初版 mp4（公网 URL） | 主轨视频 | `--video` / `videoUrl` |
 | 文案对应 mp3（公网 URL） | ASR/对齐用音频（比从 mp4 提取更干净） | `--audio` / `audioUrl`；不传则用 mp4 |
 | 原始文案 | 字幕文本源、AI 理解内容的依据 | `--script` / `script` |
-| 逐字对照 | 把文案按时间戳对上音频 | **默认不用额外配**：有 `VECTCUT_API_KEY` 就走 VectCut「识别字幕」的 sta 模式（把文案作为 `content` 传入，返回每个字的毫秒时间戳，约 3 积分/条）。也可用 `ASR_ALIGN_URL` 接你自己的接口，或 `--words` 直接传结果文件 |
-| VectCut API Key | 草稿/ASR 对齐/生图/渲染 | `VECTCUT_API_KEY` |
+| 逐字对照 | 把文案按时间戳对上音频 | **默认 Groq Whisper**（`GROQ_API_KEY`，词级时间戳 + 本地字符级对齐，文案作 prompt）。也可用 `ASR_ALIGN_URL` 接你自己的接口、`--words` 直接传结果文件；两者都没有时才用 VectCut「识别字幕」sta 模式兜底（计费） |
+| VectCut API Key | 草稿/生图/渲染（ASR 兜底） | `VECTCUT_API_KEY` |
 | 图片生成接口 | B-roll | `IMAGE_PROVIDER=vectcut`（默认，用 VectCut 聚合，无需上传）或 `openai-compatible`（Gemini/Imagen/自建网关） |
 | Gemini Key | AI 导演 | `LLM_API_KEY`（OpenAI-compatible 端点，可换任何模型；中转站填 `LLM_BASE_URL=https://xxx/v1`） |
 | 音效 / 背景音乐 | 声音设计 | 已内置在 `src/director/audio.js`（7 条 UI 音效 + 3 首垫乐，公网直链、时长已核验）。换素材改这个文件，或 `--bgm URL` 强制指定 |
@@ -41,6 +41,7 @@
 ## 费用/耗时相关
 
 - LLM：一条 1-2 分钟口播约 8-15k tokens 输入、2-4k 输出，通常 1 次通过，最多重试 3 次。
-- VectCut：草稿操作免费；ASR 对齐（约 3 积分/条）、生图和云渲染计费。`--dry-run` 只会触发 ASR（有 key 时），不建草稿、不生图、不渲染；传 `--words` 则完全免费。
-- 实测：27 秒口播全流程（ASR 对齐 + Gemini 出方案 + 2 张生图 + 建草稿）约 110 秒，Gemini 一次通过（约 5.8k 输入 / 4.7k 输出 tokens）。
+- Groq Whisper：27 秒音频约 5 秒返回，免费额度内够用。
+- VectCut：草稿操作免费；生图、云渲染、ASR 兜底（约 3 积分/条）计费。`--dry-run` 只做 ASR，不建草稿、不生图、不渲染；传 `--words` 则完全离线。
+- 实测：27 秒口播全流程（ASR 对齐 + Gemini 出方案 + 2 张生图 + 建草稿）约 110 秒，Gemini 一次通过（约 5.8k 输入 / 4.7k 输出 tokens）；云渲染 1080P 约 55 秒。
 - 渲染：文档建议素材走素材库内链可提速 90%；mp4/mp3 建议先上传到 VectCut 素材库再传链接。

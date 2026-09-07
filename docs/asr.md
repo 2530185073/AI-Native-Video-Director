@@ -7,7 +7,7 @@
 
 > 二次精剪主链路（`src/pipeline.js`）使用的是更轻的入口 `getWordTimeline`（`src/asr/timeline.js`）：
 > 只取逐字时间轴，不做去气口（初版成片已经剪过），然后交给 `timeline/chunker.js` 切成字幕片段。
-> 它支持三种来源：内联 `words`、你自己的逐字对照接口（`ASR_ALIGN_URL`）、Groq Whisper 兜底。
+> 来源优先级：内联 `words` → Groq Whisper（默认，本文档的方案）→ 你自己的逐字对照接口（`ASR_ALIGN_URL`）→ VectCut 识别字幕兜底。
 > 本文档描述的 `processAsrSubtitles`（含去气口）仍然保留，适用于原始未剪辑素材。
 
 ## 入口

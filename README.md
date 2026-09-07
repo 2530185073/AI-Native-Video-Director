@@ -12,7 +12,7 @@
 初版 mp4（数字人成片，气口已剪，人物位置固定）
 文案对应 mp3（可选，做 ASR 更干净）
 原始文案
-逐字对照（默认用 VectCut 识别字幕的“文案对齐 sta 模式”，也可接你自己的接口 / 直接传时间戳）
+逐字对照（默认 Groq Whisper 词级时间戳 + 本地字符级对齐；也可接你自己的接口 / 直接传时间戳 / VectCut 兜底）
 数字人在画面中的位置框（可选，有默认值）
         │
         ▼
@@ -53,7 +53,7 @@
 ## 快速开始
 
 ```bash
-cp .env.example .env   # 填 LLM_API_KEY / VECTCUT_API_KEY（其余可选；ASR 默认就走 VectCut）
+cp .env.example .env   # 填 LLM_API_KEY / VECTCUT_API_KEY / GROQ_API_KEY（其余可选）
 npm test               # 36 个单测 + mock 端到端
 
 # 只出方案不花钱：dry-run 生成 plan.json + ops.json
@@ -128,7 +128,7 @@ AI 不写秒数，只引用字幕片段 id；时间由代码从对齐结果解�
 
 ```
 src/
-  asr/            VectCut 文案对齐 ASR、外部逐字对照适配、Groq Whisper、字符级对齐、（可选）去气口
+  asr/            Groq Whisper（默认）、字符级对齐、外部逐字对照适配、VectCut ASR 兜底、（可选）去气口
   timeline/       任意 ASR 输出归一化、短句切片器
   layout/         人物框 → VectCut 中心坐标系像素位置、推镜锚点
   director/       效果词表、音效/BGM 素材库、Plan schema、系统 prompt、planner（校验+修复循环）、lint
@@ -154,7 +154,7 @@ docs/             architecture.md（模块细节）、inputs.md（输入清单�
 
 - [x] 数字人口播二次精剪 MVP（本仓库）
 - [x] 音效层：AI 在 punch/broll/effect 上挂音效，BGM 选曲 + 12% 铺满
-- [x] 逐字对照：VectCut 识别字幕 sta 模式（真实接口跑通，27s 口播 156 字 100% 对齐）
+- [x] 逐字对照：Groq Whisper + 字符级对齐为默认（27s 口播 5s 出结果、98% 对齐）；VectCut sta 模式作为无 Groq 时的兜底
 - [ ] 视觉审片：渲染后抽帧给多模态模型，检查遮挡/可读性/风格一致
 - [ ] 字在人后（`submit_remove_bg_text_behind_task`）作为 opening hook 选项
 - [ ] 多条成片的风格记忆（同账号统一色系与花字）

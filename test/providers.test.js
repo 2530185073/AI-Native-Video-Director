@@ -121,7 +121,26 @@ test('VectCut ASR aligns the script (sta mode), polls until success and flattens
   assert.equal(result.words.length, 5);
   assert.deepEqual(result.words[3], { text: '浦', start: 0.4, end: 0.56 });
 
-  const timeline = await getWordTimeline({ audioUrl: 'https://a.mp3', script: '要想在浦东', provider: 'auto', vectcut: { client, intervalMs: 1 } });
-  assert.equal(timeline.provider, 'vectcut');
-  assert.equal(timeline.duration, 0.734);
+  // auto: Groq is preferred whenever a key exists; VectCut is only the last resort.
+  const saved = { groq: process.env.GROQ_API_KEY, align: process.env.ASR_ALIGN_URL };
+  delete process.env.GROQ_API_KEY;
+  delete process.env.ASR_ALIGN_URL;
+  try {
+    const timeline = await getWordTimeline({ audioUrl: 'https://a.mp3', script: '要想在浦东', provider: 'auto', vectcut: { client, intervalMs: 1 } });
+    assert.equal(timeline.provider, 'vectcut');
+    assert.equal(timeline.duration, 0.734);
+
+    const groqFetch = async () => new Response(JSON.stringify({ duration: 0.734, words: [{ word: '要想在浦东', start: 0, end: 0.734 }] }), { status: 200 });
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url, init) => (String(url).includes('a.mp3') ? new Response(new Uint8Array([1, 2, 3])) : groqFetch(url, init));
+    try {
+      const viaGroq = await getWordTimeline({ audioUrl: 'https://a.mp3', script: '要想在浦东', provider: 'auto', groq: { apiKey: 'gsk_test' }, vectcut: { client } });
+      assert.equal(viaGroq.provider, 'groq');
+    } finally {
+      globalThis.fetch = original;
+    }
+  } finally {
+    if (saved.groq !== undefined) process.env.GROQ_API_KEY = saved.groq;
+    if (saved.align !== undefined) process.env.ASR_ALIGN_URL = saved.align;
+  }
 });

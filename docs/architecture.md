@@ -16,7 +16,7 @@
 
 ## 时间轴层
 
-1. `getWordTimeline` 按优先级选源：内联 `words` → 外部对照接口（`ASR_ALIGN_URL`）→ VectCut 识别字幕（`asr/vectcut.js`，传 `content` 走 sta 文案对齐模式，`segments[].words[]` 是逐字毫秒时间戳）→ Groq Whisper（把文案当 prompt 提升识别）。
+1. `getWordTimeline` 按优先级选源：内联 `words` → **Groq Whisper**（默认；词级时间戳，把文案当 prompt 提升识别）→ 外部对照接口（`ASR_ALIGN_URL`）→ VectCut 识别字幕兜底（`asr/vectcut.js`，传 `content` 走 sta 文案对齐模式，`segments[].words[]` 是逐字毫秒时间戳）。
 2. `normalizeWords` 把任意形状的返回统一成 `[{ text, start, end }]`。
 3. `alignScriptCharacters` 用 Levenshtein DP（Int32Array 行，2000×2000 也只有几 MB）把文案每个字对到 ASR 字上，得到逐字时间。
 4. `buildChunks` 生成字幕片段：先按标点切句，再按 >0.35s 的停顿切，再对超过 14 字的句子在最大停顿处递归二分；标点从显示文本中去掉，但数字里的小数点保留。没对上的片段按字数在相邻片段之间插值，并标记 `interpolated`。短于 0.6s 的间隙会让字幕“撑到下一句”，避免闪烁。
@@ -68,4 +68,4 @@ create_draft → add_video → [add_audio 替换人声] → add_audio×N(BGM 循
 
 `npm test` 运行 36 个 `node:test` 用例：切片器、布局、schema/lint/planner 修复循环、编译器参数（含 BGM 循环、dB 换算、音效裁剪与分轨）、执行器降级与 `bgm_fill` 展开、LLM 结构化输出降级、VectCut 客户端错误处理、VectCut ASR 轮询与逐字展开、生图 provider、外部 ASR 适配、mock 端到端。全部离线。
 
-真实接口验证（2026-09，27s 口播）：VectCut sta 对齐 156 字覆盖 100%；Gemini（OpenAI 兼容中转，`json_object` 模式）一次通过校验；草稿含 22 条字幕、4 个花字、2 张生图 B-roll、1 个特效、BGM（草稿内 `volume 0.120`）与 4 条音效；云渲染成功。
+真实接口验证（2026-09，27s 口播）：Groq Whisper 5.3s 返回 137 词，字符级对齐覆盖 98%（VectCut sta 兜底路径同样跑通，切片时间差 ≤0.1s）；Gemini（OpenAI 兼容中转，`json_object` 模式）一次通过校验；草稿含 22 条字幕、4 个花字、2 张生图 B-roll、1 个特效、BGM（草稿内 `volume 0.120`）与 4 条音效；云渲染成功。

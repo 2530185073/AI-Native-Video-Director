@@ -8,9 +8,10 @@ import { transcribeWithGroq } from './whisper.js';
  * available, in priority order:
  *
  * 1. `words` passed inline (already-aligned data from the caller)
- * 2. the user's external alignment service (`ASR_PROVIDER=external`)
- * 3. VectCut's ASR in script-alignment mode (`ASR_PROVIDER=vectcut`, needs the client)
- * 4. Groq Whisper with the script as a prompt (`ASR_PROVIDER=groq`)
+ * 2. Groq Whisper word timestamps + local character-level alignment against the
+ *    script (`ASR_PROVIDER=groq`) — the proven default of this repo
+ * 3. the user's external alignment service (`ASR_PROVIDER=external`)
+ * 4. VectCut's ASR in script-alignment mode (`ASR_PROVIDER=vectcut`, needs the client)
  */
 export async function getWordTimeline({
   audioUrl,
@@ -31,10 +32,10 @@ export async function getWordTimeline({
 
   let chosen = provider;
   if (chosen === 'auto') {
-    if (process.env.ASR_ALIGN_URL) chosen = 'external';
+    if (process.env.GROQ_API_KEY || groq.apiKey) chosen = 'groq';
+    else if (process.env.ASR_ALIGN_URL || external.url) chosen = 'external';
     else if (vectcut.client) chosen = 'vectcut';
-    else if (process.env.GROQ_API_KEY) chosen = 'groq';
-    else throw new Error('No ASR provider configured: set ASR_ALIGN_URL (external), VECTCUT_API_KEY (vectcut) or GROQ_API_KEY (groq), or pass words');
+    else throw new Error('No ASR provider configured: set GROQ_API_KEY (groq), ASR_ALIGN_URL (external) or VECTCUT_API_KEY (vectcut), or pass words');
   }
 
   if (chosen === 'external') {
