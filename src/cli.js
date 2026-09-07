@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { loadEnvFile } from './config.js';
 import { directSecondCut } from './pipeline.js';
 import { resolveMedia } from './media.js';
+import { reviewRender } from './review.js';
 import { createLLM } from './providers/llm/index.js';
 import { createImageProvider } from './providers/image/index.js';
 import { createVectCutClient } from './vectcut/client.js';
@@ -31,6 +32,7 @@ const HELP = `AI Native Video Director — 数字人口播二次精剪
   --from-plan FILE     直接使用已审核的 plan.json，跳过 LLM
   --name NAME          草稿名
   --render             生成草稿后提交云渲染并等待结果
+  --review             渲染完成后自动审片：ffmpeg 抽帧拼 contact-sheet.jpg，并让 Gemini 看图打分写 review.json（隐含 --render）
   --resolution 1080P   渲染分辨率（默认 1080P）
   --dry-run            只生成 plan 与操作列表，不调用 VectCut
   --out DIR            输出目录（默认 ./out/<时间戳>）
@@ -88,6 +90,7 @@ async function main() {
   const words = args.words ? JSON.parse(readFileSync(resolve(args.words), 'utf8')) : undefined;
   const brief = args.brief ? JSON.parse(readFileSync(resolve(args.brief), 'utf8')) : undefined;
   const dryRun = Boolean(args['dry-run']);
+  const review = Boolean(args.review) && !dryRun;
   const outDir = resolve(args.out || join('out', new Date().toISOString().replace(/[:.]/g, '-')));
   mkdirSync(outDir, { recursive: true });
 
@@ -129,7 +132,7 @@ async function main() {
       sfxVolume: numberOr(args['sfx-volume'] ?? process.env.SFX_VOLUME, undefined),
       replaceAudio: Boolean(args['replace-audio']),
       name: args.name,
-      render: Boolean(args.render),
+      render: Boolean(args.render) || review,
       renderOptions: { resolution: args.resolution || '1080P' },
       dryRun
     }, { llm, vectcut, imageProvider, logger });
@@ -139,6 +142,27 @@ async function main() {
     writeFileSync(join(outDir, 'ops.json'), JSON.stringify(result.ops, null, 2));
     writeFileSync(join(outDir, 'result.json'), JSON.stringify({ ...result, chunks: undefined, ops: undefined }, null, 2));
 
+    // Post-render QC: contact sheet + vision review. Never fails the run — it produces evidence.
+    let qc = null;
+    if (review && result.render?.result) {
+      try {
+        const reviewer = typeof llm.generateContent === 'function' ? llm : (process.env.LLM_API_KEY || process.env.GOOGLE_GEMINI_API_KEY ? createLLM() : null);
+        qc = await reviewRender({
+          videoUrl: result.render.result,
+          plan: result.plan,
+          chunks: result.chunks,
+          duration: result.timeline.duration,
+          outDir,
+          llm: reviewer,
+          brief,
+          logger
+        });
+        writeFileSync(join(outDir, 'review.json'), JSON.stringify({ frames: qc.frames, sheet: qc.sheet, review: qc.review }, null, 2));
+      } catch (error) {
+        logger(`review skipped: ${error.message}`);
+      }
+    }
+
     console.log(JSON.stringify({
       outDir,
       concept: result.plan.concept,
@@ -146,7 +170,8 @@ async function main() {
       beats: result.plan.beats.length,
       lintWarnings: result.lintWarnings,
       draft: result.draft,
-      render: result.render ? { status: result.render.status, url: result.render.result } : null
+      render: result.render ? { status: result.render.status, url: result.render.result } : null,
+      review: qc ? { sheet: qc.sheet, verdict: qc.review?.verdict, overall: qc.review?.overall, scores: qc.review?.scores, issues: qc.review?.issues, summary: qc.review?.summary } : null
     }, null, 2));
   } catch (error) {
     logger(`failed: ${error.message}`);

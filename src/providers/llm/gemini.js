@@ -119,12 +119,16 @@ export class GeminiLLM {
     return `${this.baseUrl}/models/${encodeURIComponent(this.model)}:generateContent`;
   }
 
-  async generateContent({ system, user, generationConfig = {}, temperature = this.temperature } = {}) {
+  /**
+   * `user` is the prompt text; `parts` (optional) are extra multimodal parts appended
+   * after it, e.g. `{ inline_data: { mime_type: 'image/jpeg', data: base64 } }`.
+   */
+  async generateContent({ system, user, parts = [], generationConfig = {}, temperature = this.temperature } = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
       const body = {
-        contents: [{ role: 'user', parts: [{ text: String(user ?? '') }] }],
+        contents: [{ role: 'user', parts: [{ text: String(user ?? '') }, ...parts] }],
         generationConfig: { temperature, ...generationConfig }
       };
       if (system) body.systemInstruction = { parts: [{ text: String(system) }] };
