@@ -5,6 +5,11 @@
 把一段口播音频/视频和人工校对文案转换为可用于剪辑的字幕时间轴，并
 根据词间停顿生成视频时间轴压缩方案。
 
+> 二次精剪主链路（`src/pipeline.js`）使用的是更轻的入口 `getWordTimeline`（`src/asr/timeline.js`）：
+> 只取逐字时间轴，不做去气口（初版成片已经剪过），然后交给 `timeline/chunker.js` 切成字幕片段。
+> 它支持三种来源：内联 `words`、你自己的逐字对照接口（`ASR_ALIGN_URL`）、Groq Whisper 兜底。
+> 本文档描述的 `processAsrSubtitles`（含去气口）仍然保留，适用于原始未剪辑素材。
+
 ## 入口
 
 ```js
