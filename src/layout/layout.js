@@ -84,17 +84,18 @@ export function createLayout({ canvas = { width: 1080, height: 1920 }, person, f
 
   /**
    * `above_head` needs the whole word to fit between the top UI band and the hairline;
-   * in tight close-ups (face starting < ~15% from the top) it falls back to `chest`
-   * (between chin and subtitles) and only then to `beside_face`. The placement actually
-   * used is returned as `resolved` so lint can reason about collisions with B-roll.
+   * in tight close-ups (face starting < ~15% from the top) it falls back to `top`
+   * (safe band at the very top of the frame) so the word never sits on the subtitle
+   * line. `chest` stays available when a beat explicitly asks for it. The placement
+   * actually used is returned as `resolved` so lint can reason about B-roll collisions.
    */
   function punch(position = 'above_head') {
     const headroom = faceBox.y;
     let resolved = position || 'above_head';
     if (resolved === 'above_head' && headroom - SAFE_ZONE.top < PUNCH_TEXT_HEIGHT + 0.03) {
-      resolved = chestBand.bottom - chestBand.top >= PUNCH_TEXT_HEIGHT ? 'chest' : 'beside_face';
+      resolved = 'top';
     }
-    if (resolved === 'chest' && chestBand.bottom - chestBand.top < PUNCH_TEXT_HEIGHT) resolved = 'beside_face';
+    if (resolved === 'chest' && chestBand.bottom - chestBand.top < PUNCH_TEXT_HEIGHT) resolved = 'top';
     switch (resolved) {
       case 'beside_face': {
         const x = freeSide === 'right' ? clamp(faceBox.x + faceBox.w + 0.20, 0.55, 0.78) : clamp(faceBox.x - 0.20, 0.22, 0.45);
@@ -105,7 +106,7 @@ export function createLayout({ canvas = { width: 1080, height: 1920 }, person, f
       case 'center':
         return { ...toPx(0.5, 0.48), fixed_width: 0.55, resolved };
       case 'top':
-        return { ...toPx(0.5, SAFE_ZONE.top + 0.035), fixed_width: 0.55, resolved };
+        return { ...toPx(0.5, SAFE_ZONE.top + 0.035), fixed_width: 0.55, resolved: 'top' };
       case 'above_head':
       default:
         return { ...toPx(0.5, clamp(headroom / 2, SAFE_ZONE.top + 0.03, 0.30)), fixed_width: 0.55, resolved: 'above_head' };

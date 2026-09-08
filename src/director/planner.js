@@ -91,15 +91,15 @@ export function normalizePlan(plan, chunks, catalog = CATALOG) {
     return [copy];
   });
 
-  // Exact-subtitle look is product-locked: keep the director's highlight/intro/background
-  // choices, but always ship 新青年体 / size 13 / white / black stroke 40@40% / y=-0.4.
+  // Exact-subtitle look is product-locked: keep the director's highlight/intro choices,
+  // but always ship 新青年体 / size 13 / white / black stroke 40@40% / y=-0.4 / no black bar.
   const incoming = plan.subtitleStyle && typeof plan.subtitleStyle === 'object' ? plan.subtitleStyle : {};
   plan.subtitleStyle = {
     ...DEFAULT_SUBTITLE_STYLE,
     highlightColor: incoming.highlightColor || DEFAULT_SUBTITLE_STYLE.highlightColor,
     highlightScale: incoming.highlightScale || DEFAULT_SUBTITLE_STYLE.highlightScale,
     intro: incoming.intro === undefined ? DEFAULT_SUBTITLE_STYLE.intro : incoming.intro,
-    background: incoming.background || DEFAULT_SUBTITLE_STYLE.background,
+    background: { enabled: false },
     font: DEFAULT_SUBTITLE_STYLE.font,
     fontSize: DEFAULT_SUBTITLE_STYLE.fontSize,
     color: DEFAULT_SUBTITLE_STYLE.color,
@@ -110,6 +110,12 @@ export function normalizePlan(plan, chunks, catalog = CATALOG) {
     transformY: DEFAULT_SUBTITLE_STYLE.transformY,
     bold: true
   };
+  // Big punch words sit at the top of the frame so they never stack on the subtitle line.
+  for (const beat of plan.beats || []) {
+    if (beat.type === 'punch' && (!beat.position || beat.position === 'chest' || beat.position === 'above_head')) {
+      beat.position = beat.position === 'above_head' ? 'above_head' : 'top';
+    }
+  }
   if (typeof plan.bgm === 'string') plan.bgm = { track: plan.bgm, reason: '模型直接给出曲目' };
   if (plan.bgm == null || plan.bgm.track == null) {
     plan.bgm = { track: DEFAULT_BGM_TRACK, reason: '未选择时使用默认通用口播垫乐' };

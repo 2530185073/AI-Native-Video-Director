@@ -258,26 +258,32 @@ test('lint keeps punch text to white + the highlight colour, including the colou
   assert.equal(validatePlan(linted, { chunks }).length, 0);
 });
 
-test('lint puts a solid enough scrim behind the subtitles when the footage has a busy lower third', () => {
+test('lint keeps subtitle black bars off even when the footage has a busy lower third', () => {
   const { chunks, layout, duration } = fixture();
   const source = { lowerThirdBusy: true, lowerThirdReason: '黑色短袖胸前有白色英文印花' };
 
   const off = samplePlan(chunks);
   off.subtitleStyle.background = { enabled: false };
-  const enabled = lintPlan(off, { chunks, layout, duration, source });
-  assert.equal(enabled.plan.subtitleStyle.background.enabled, true);
-  assert.equal(enabled.plan.subtitleStyle.background.alpha, DEFAULT_LIMITS.busyScrimAlpha);
-  assert.ok(enabled.warnings.some(warning => warning.includes('busy lower third')));
+  const keptOff = lintPlan(off, { chunks, layout, duration, source });
+  assert.equal(keptOff.plan.subtitleStyle.background.enabled, false);
 
-  const faint = samplePlan(chunks);
-  faint.subtitleStyle.background = { enabled: true, color: '#000000', alpha: 0.45 };
-  const raised = lintPlan(faint, { chunks, layout, duration, source });
-  assert.equal(raised.plan.subtitleStyle.background.alpha, DEFAULT_LIMITS.busyScrimAlpha, 'a faint bar is raised, not replaced');
-  assert.equal(raised.plan.subtitleStyle.background.color, '#000000');
-  assert.ok(raised.warnings.some(warning => warning.includes('too faint')));
+  const on = samplePlan(chunks);
+  on.subtitleStyle.background = { enabled: true, color: '#000000', alpha: 0.45 };
+  const forcedOff = lintPlan(on, { chunks, layout, duration, source });
+  assert.equal(forcedOff.plan.subtitleStyle.background.enabled, false, 'product lock strips the black bar');
+  assert.ok(forcedOff.warnings.some(warning => /black bar|subtitle bar|底/.test(warning) || warning.includes('product lock')));
+});
 
-  const clean = lintPlan(faint, { chunks, layout, duration, source: { lowerThirdBusy: false } });
-  assert.equal(clean.plan.subtitleStyle.background.alpha, 0.45, 'untouched when the lower third is clean');
+test('lint lifts chest punches to the top so they do not stack on subtitles', () => {
+  const { chunks, layout, duration } = fixture();
+  const plan = samplePlan(chunks);
+  plan.beats = [
+    { type: 'punch', chunkId: chunks[2].id, text: chunks[2].text.slice(0, 2), flowerId: null, color: '#FFE14D', fontSize: 18, intro: '弹入', loop: null, position: 'chest', outro: null, sfx: null, reason: 'big word' }
+  ];
+  const { plan: linted, warnings } = lintPlan(plan, { chunks, layout, duration });
+  const punch = linted.beats.find(beat => beat.type === 'punch');
+  assert.equal(punch.position, 'top');
+  assert.ok(warnings.some(warning => warning.includes('chest') && warning.includes('top')));
 });
 
 test('rhythm budget scales with script density', () => {

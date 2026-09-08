@@ -27,33 +27,33 @@ test('layout converts semantic placements into centre-origin pixels', () => {
   assert.deepEqual([full.widthPx, full.heightPx], [1080, 1920]);
 });
 
-test('layout accepts pixel boxes and moves the punch to the chest when there is no head-room', () => {
+test('layout accepts pixel boxes and moves the punch to the top when there is no head-room', () => {
   const layout = createLayout({ canvas: { width: 1080, height: 1920 }, person: { x: 100, y: 40, w: 880, h: 1880 }, face: { x: 340, y: 60, w: 400, h: 420 } });
   assert.ok(layout.face.y < 0.1);
   const punch = layout.punch('above_head');
-  assert.equal(punch.resolved, 'chest');
+  assert.equal(punch.resolved, 'top');
   const y = 0.5 - punch.transform_y_px / (2 * 1920);
-  const chin = layout.face.y + layout.face.h;
-  assert.ok(y - 0.035 > chin, `chest punch (${y}) sits below the chin (${chin})`);
-  assert.ok(y + 0.035 < layout.subtitle('lower_third').yFraction, 'and above the subtitle line');
+  // Extreme close-ups put the hairline inside the UI band; top still parks in the safe band,
+  // which is what keeps the word off the subtitle line even when it overlaps the forehead.
+  assert.ok(Math.abs(y - (SAFE_ZONE.top + 0.035)) < 0.002, `top punch (${y}) sits in the top safe band`);
+  assert.ok(y + 0.04 < layout.subtitle('lower_third').yFraction, 'top punch stays clear of the subtitle line');
 
-  // No room above the head *or* between chin and subtitles → beside the face.
+  // Explicit chest with no room between chin and subtitles also lifts to top.
   const cramped = createLayout({ person: { x: 0, y: 0, w: 1, h: 1 }, face: { x: 0.3, y: 0.05, w: 0.4, h: 0.66 } });
-  assert.equal(cramped.punch('above_head').resolved, 'beside_face');
-  assert.ok(cramped.punch('above_head').side);
+  assert.equal(cramped.punch('chest').resolved, 'top');
 });
 
 test('tight close-up framing: overlays adapt to the measured free space', () => {
   // Real clip: head fills 28%-72% of the width and starts 14.5% from the top.
   const layout = createLayout({ person: { x: 0.05, y: 0.13, w: 0.9, h: 0.87 }, face: { x: 0.28, y: 0.145, w: 0.44, h: 0.385 } });
 
-  // 14.5% of headroom minus the 6% UI band cannot hold a 6.5%-tall word, so the big word goes to the chest.
+  // 14.5% of headroom minus the 6% UI band cannot hold a 6.5%-tall word, so the big word goes to the top.
   const punch = layout.punch('above_head');
-  assert.equal(punch.resolved, 'chest');
+  assert.equal(punch.resolved, 'top');
   const punchY = 0.5 - punch.transform_y_px / (2 * 1920);
   const subtitle = layout.subtitle('lower_third');
   assert.ok(subtitle.yFraction >= 0.7, 'subtitle goes below the chin');
-  assert.ok(punchY - 0.035 > layout.face.y + layout.face.h, `punch (${punchY}) must clear the chin`);
+  assert.ok(punchY + 0.035 < layout.face.y + 0.02, `top punch (${punchY}) stays above the hairline`);
   assert.ok(punchY + 0.035 < subtitle.yFraction, `punch (${punchY}) must clear the subtitle (${subtitle.yFraction})`);
   assert.equal(layout.punch('top').resolved, 'top');
 

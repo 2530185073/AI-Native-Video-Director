@@ -179,20 +179,12 @@ export function lintPlan(plan, { chunks, layout, duration, source, limits = DEFA
   const chunkById = new Map(chunks.map(chunk => [chunk.id, chunk]));
   const totalDuration = duration || (chunks.length ? chunks[chunks.length - 1].end : 60);
 
-  // 0. What the pre-flight look at the footage found: a busy lower third (printed clothing,
-  //    patterned background) needs a scrim behind the subtitles — floating text over
-  //    texture is the most common readability failure in the reviewer's notes.
-  if (source?.lowerThirdBusy) {
-    const bar = result.subtitleStyle.background;
-    if (!bar?.enabled) {
-      result.subtitleStyle.background = { enabled: true, color: '#000000', alpha: limits.busyScrimAlpha };
-      warnings.push(`source frame shows a busy lower third (${source.lowerThirdReason || 'texture behind the subtitles'}); enabled a translucent subtitle bar`);
-    } else if (!(Number(bar.alpha) >= limits.busyScrimAlpha)) {
-      // A faint scrim lets printed letters bleed through the subtitles ("重影杂字" in the reviewer's words).
-      warnings.push(`subtitle bar alpha ${bar.alpha} is too faint for a busy lower third (${source.lowerThirdReason || 'texture'}); raised to ${limits.busyScrimAlpha}`);
-      result.subtitleStyle.background = { ...bar, alpha: limits.busyScrimAlpha };
-    }
+  // 0. Product lock: talking-head subtitles ship without a black bar. Stroke + shadow carry
+  //    readability even on a busy lower third; a scrim fights the clean look the client wants.
+  if (result.subtitleStyle?.background?.enabled) {
+    warnings.push('subtitle black bar disabled (product lock: stroke-only subtitles)');
   }
+  result.subtitleStyle.background = { enabled: false };
 
   // 1. Highlights must literally appear in the subtitle chunk.
   result.chunks = result.chunks.filter(entry => chunkById.has(entry.id));
@@ -448,16 +440,25 @@ export function lintPlan(plan, { chunks, layout, duration, source, limits = DEFA
     if (zones.has('fullscreen') && beat.position !== 'top') {
       warnings.push(`punch "${beat.text}" coincides with fullscreen B-roll; moved to top`);
       beat.position = 'top';
-    } else if (zones.has('pip_face') && resolvedPunch !== 'chest') {
-      // The speaker window owns the top-left; the big word goes over the lower half of the picture.
-      warnings.push(`punch "${beat.text}" coincides with a pip_face picture; moved to chest, clear of the speaker window`);
-      beat.position = 'chest';
+    } else if (zones.has('pip_face') && resolvedPunch === 'above_head') {
+      // Speaker window owns the top-left; keep the word at centre-top so it never sits on the subtitle line.
+      warnings.push(`punch "${beat.text}" coincides with a pip_face picture; moved to top, clear of the speaker window and subtitles`);
+      beat.position = 'top';
     } else if (zones.has('lower_card') && resolvedPunch === 'chest') {
       warnings.push(`punch "${beat.text}" would sit on a lower_card picture; moved to top`);
       beat.position = 'top';
     } else if (zones.has('card_top') && (resolvedPunch === 'above_head' || resolvedPunch === 'top')) {
-      warnings.push(`punch "${beat.text}" would sit on a card_top picture; moved to chest`);
-      beat.position = 'chest';
+      warnings.push(`punch "${beat.text}" would sit on a card_top picture; moved to beside_face`);
+      beat.position = 'beside_face';
+    }
+  }
+
+  // 6c. Chest punches sit on the subtitle band in tight talking-head framing — lift them to top.
+  for (const beat of beats) {
+    if (beat.type !== 'punch') continue;
+    if (beat.position === 'chest') {
+      warnings.push(`punch "${beat.text}" moved from chest to top so it does not stack on the subtitles`);
+      beat.position = 'top';
     }
   }
 
