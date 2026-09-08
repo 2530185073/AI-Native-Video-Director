@@ -6,9 +6,9 @@ import { describeCatalog } from './catalog.js';
 export const SKILL_PATH = resolve(dirname(fileURLToPath(import.meta.url)), '../../skills/talking-head-second-cut/SKILL.md');
 
 /**
- * The director's system prompt is the SKILL.md knowledge pack, minus the YAML
- * front-matter and the maintainer-only "来源" section. Keeping it as a Markdown
- * file makes the editing doctrine reviewable and diffable on its own.
+ * The director's system prompt is the portable skill pack
+ * (`skills/talking-head-second-cut/SKILL.md`), minus YAML front-matter and the
+ * maintainer-only "来源" section. Other models can use the same file as-is.
  */
 export function loadDirectorSkill(path = SKILL_PATH) {
   let text;

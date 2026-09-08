@@ -19,11 +19,11 @@
  ⓪ 开拍前看素材      抽一帧给 Gemini：人脸/人物框、字幕区是否杂乱（印花衣服）、衣着颜色 → source 观察
  ① 逐字时间轴        文案的每个字 ↔ 音频时间戳（Levenshtein 字符级对齐）
  ② 短句切片          8-14 字一屏、按停顿和标点切，带逐字时间
- ③ AI 导演决策       Gemini 原生 generateContent，系统提示 = skills/talking-head-second-cut/SKILL.md（v3）→ Editing Plan JSON
+ ③ AI 导演决策       任意模型（默认 Gemini）读 skills/talking-head-second-cut/SKILL.md → Editing Plan JSON；也可换模型出 plan 再 --from-plan
                     提示里带构图等级（tight/medium/wide）、素材观察、按信息密度缩放的节奏预算
  ④ 规则审片 lint     高亮必须在字幕里、不遮脸、不进平台 UI 遮挡区、前 3 秒不切全屏图、最后一句留人脸、推镜 ≥2s 且间隔 ≥2.5s、
-                    B-roll ≤35% 且全屏 ≥2s、近景小卡升级 pip_face、白 + 一个强调色、只有一个 apex 花字、音效语法、
-                    >8s 静止段补轻推、字幕区杂乱自动开底条、每分钟密度上限……
+                    B-roll ≤42% 且全屏 ≥2s、近景小卡升级 pip_face、白 + 一个强调色、只有一个 apex 花字、音效语法、
+                    >8s 静止段补轻推、字幕无黑底、花字抬到顶部、每分钟密度上限……
  ⑤ 编译             Plan → VectCut 操作序列（纯函数，可 dry-run 审阅）；字幕比语音提前 120ms
  ⑥ 执行             建草稿 / 主视频 / BGM 铺满 / 关键帧推镜 / 批量字幕 / 花字 / 生图 B-roll（含圆形人物小窗）/ 特效 / 音效 / query_script 校验
  ⑦ 云渲染（可选）    generate_video → task_status → mp4
@@ -88,7 +88,9 @@ node src/cli.js ... --bgm https://assets.mixkit.co/music/764/764.mp3 --bgm-volum
 node src/cli.js ... --bgm none
 ```
 
-`--from-plan plan.json` 可以跳过 LLM，用人工审过/改过的方案直接出草稿；`--words words.json` 传入你自己的逐字时间戳（任意常见格式，宽松解析）。
+`--from-plan plan.json` 可以跳过内置导演，用人工审过、或**其他模型**按 `skills/talking-head-second-cut/` 产出的方案直接出草稿；`--words words.json` 传入你自己的逐字时间戳（任意常见格式，宽松解析）。
+
+换模型当导演：把 `skills/talking-head-second-cut/SKILL.md` 当 system prompt，`user-prompt.template.md` + `catalog.md` 当 user，只收 JSON，再 `--from-plan`。详见该目录 README。
 
 `brief.json` 示例：
 

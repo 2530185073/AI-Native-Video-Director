@@ -27,7 +27,7 @@ test('normalizePlan fills Gemini-omitted type fields and sanitizes wild chunk id
   };
   const plan = normalizePlan(structuredClone(raw), chunks);
   assert.equal(plan.tone, 'energetic');
-  assert.deepEqual(plan.bgm, { track: 'lofi_clean', reason: '模型直接给出曲目' });
+  assert.deepEqual(plan.bgm, { track: 'talk_default', reason: '模型直接给出曲目' });
   assert.equal(plan.chunks.length, chunks.length);
 
   const zoom = plan.beats.find(beat => beat.type === 'zoom' && beat.fromChunk === 1);
