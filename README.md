@@ -92,6 +92,8 @@ node src/cli.js ... --bgm none
 
 换模型当导演：把整个 `skills/talking-head-second-cut/` 交给对方即可。`SKILL.md` 当 system prompt（已含词表速查），按 `user-prompt.template.md` 填 user，只收 JSON，再 `--from-plan`。也可复制到 `.cursor/skills/` 或 `.claude/skills/`。详见该目录 README。
 
+**Skill 里没有 API key。** 另一台机器要无缝出片：拷仓库 + 拷 `.env`（或按 `.env.example` 另填 `LLM_API_KEY` / `VECTCUT_API_KEY` / `GROQ_API_KEY`），然后 `node src/cli.js --check`。
+
 `brief.json` 示例：
 
 ```json

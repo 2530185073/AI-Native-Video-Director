@@ -147,7 +147,7 @@ test('LLM OpenAI-compatible provider falls back from json_schema to json_object 
     if (body.response_format?.type === 'json_schema') return jsonResponse(400, { error: { message: 'unsupported response_format' } });
     return jsonResponse(200, { choices: [{ message: { content: '```json\n{"ok":true}\n```' } }], usage: { total_tokens: 12 } });
   };
-  const llm = new OpenAICompatibleLLM({ apiKey: 'k', baseUrl: 'https://llm.test/v1/', model: 'm', fetchImpl });
+  const llm = new OpenAICompatibleLLM({ apiKey: 'k', baseUrl: 'https://llm.test/v1/', model: 'm', fetchImpl, structuredMode: 'json_schema' });
   const result = await llm.generateJson({ system: 's', user: 'u', schema: { type: 'object', properties: { ok: { type: 'boolean' } } } });
   assert.deepEqual(result.data, { ok: true });
   assert.equal(result.mode, 'json_object');

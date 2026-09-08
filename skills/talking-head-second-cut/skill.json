@@ -1,6 +1,6 @@
 {
   "name": "talking-head-second-cut",
-  "version": "5",
+  "version": "6",
   "description": "数字人/真人口播二次精剪导演技能：任意模型读 SKILL.md，只输出 plan.json。",
   "license": "use with this repository's compiler",
   "role": "system",
@@ -32,6 +32,13 @@
   "howToUse": {
     "anyModel": "system=SKILL.md；user=填好的 user-prompt.template.md（可另贴 catalog.md）；只收 JSON",
     "thisRepo": "node src/cli.js --from-plan plan.json --video … --script … --render",
-    "cursorOrClaude": "把本目录复制到 .cursor/skills/ 或 .claude/skills/"
+    "cursorOrClaude": "把本目录复制到 .cursor/skills/ 或 .claude/skills/",
+    "anotherMachine": "拷仓库 + 拷 .env（或按 .env.example 另填）。skill 内无 key。node src/cli.js --check"
+  },
+  "env": {
+    "secretsLiveIn": ".env (gitignored; never in this skill pack)",
+    "required": ["LLM_API_KEY", "VECTCUT_API_KEY"],
+    "recommended": ["GROQ_API_KEY"],
+    "optional": ["IMAGE_API_KEY", "IMAGE_BASE_URL", "LLM_BASE_URL", "LLM_MODEL", "BGM_URL"]
   }
 }

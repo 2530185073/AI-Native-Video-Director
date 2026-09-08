@@ -11,6 +11,7 @@ export { lintPlan, DEFAULT_LIMITS, STATIC_FILL_REASON } from './director/lint.js
 export { loadDirectorSkill, rhythmBudget, scriptDensity, DIRECTOR_SYSTEM_PROMPT, SKILL_PATH } from './director/prompt.js';
 export { reviewRender, reviewTimestamps, buildContactSheet, reviewContactSheet, probeRender, applyReviewCaps, REVIEW_RUBRIC, REVIEW_HARD_CAPS } from './review.js';
 export { inspectSource, grabFrame, normalizeInspection, INSPECT_PROMPT } from './inspect.js';
+export { checkSetup, maskSecret } from './setup.js';
 export { createEditingPlan, normalizePlan } from './director/planner.js';
 export { compilePlan, summarizeOps } from './vectcut/compiler.js';
 export { executeOps, summarizeScript } from './vectcut/executor.js';

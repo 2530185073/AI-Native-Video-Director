@@ -10,6 +10,7 @@ import { inspectSource } from './inspect.js';
 import { createLLM } from './providers/llm/index.js';
 import { createImageProvider } from './providers/image/index.js';
 import { createVectCutClient } from './vectcut/client.js';
+import { checkSetup } from './setup.js';
 
 const HELP = `AI Native Video Director — 数字人口播二次精剪
 
@@ -39,6 +40,7 @@ const HELP = `AI Native Video Director — 数字人口播二次精剪
   --no-inspect         跳过开拍前的素材检查（默认：抽一帧让 Gemini 看人脸位置 / 字幕区是否杂乱 / 衣着颜色）
   --resolution 1080P   渲染分辨率（默认 1080P）
   --dry-run            只生成 plan 与操作列表，不调用 VectCut
+  --check              检查另一台机器能否开剪：.env 钥匙是否已填（不打印完整 key）、ffmpeg、skill 是否在
   --out DIR            输出目录（默认 ./out/<时间戳>）
   --env FILE           .env 路径（默认 ./.env）
   -h, --help           帮助
@@ -83,6 +85,13 @@ function parseCanvas(value) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  if (args.check) {
+    const envPath = args.env || '.env';
+    loadEnvFile(envPath);
+    const report = checkSetup({ envFileExists: existsSync(resolve(envPath)) });
+    console.log(JSON.stringify(report, null, 2));
+    process.exit(report.ok ? 0 : 1);
+  }
   if (args.h || args.help || (!args.video && !args._.length)) {
     console.log(HELP);
     process.exit(args.video ? 0 : 1);

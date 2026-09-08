@@ -28,8 +28,11 @@ node src/cli.js --from-plan plan.json --video … --script … --render
 | `output.schema.json` | 支持 Structured Output 的模型 | 机器校验 |
 | `examples/user.example.md` | 对照 | 填好的 user |
 | `examples/plan.example.json` | 对照 | 对应的合法 plan |
+| `env.required.md` | 另一台机器 | 要填哪些环境变量（只有名字，没有值） |
 
 把**整个目录**交给另一个模型或同事即可，不必再解释规则。
+
+**这里没有 API key。** 钥匙只放各机 `.env`（git 已忽略）。另一台机器要无缝出片：拷仓库 + 拷那份 `.env`（或按 `.env.example` 另填），然后 `node src/cli.js --check`。变量名见 `env.required.md`。
 
 ## 其他模型怎么用
 
@@ -64,6 +67,21 @@ cp -R skills/talking-head-second-cut ~/.cursor/skills/
 ```
 
 模型**不要**写秒数、不要发明花字 ID、不要给字幕加黑底、不要把花字放 `chest`。
+
+## 另一台机器无缝开剪
+
+Skill 只负责「怎么剪」；「用谁的账号去剪」必须在那台机器本地配。
+
+```bash
+git clone <本仓库> && cd AI-Native-Video-Director
+# 把现有机器上的 .env 拷过来（不要提交、不要放进 skill）
+# 或：cp .env.example .env 然后自己填 LLM_API_KEY / VECTCUT_API_KEY / GROQ_API_KEY
+npm test
+node src/cli.js --check    # 只报告缺哪把钥匙，不打印完整 key
+# 装 ffmpeg（抽帧 / 审片 / 从本地 mp4 抽音频）
+```
+
+`--check` 通过后再跑 `--video … --script … --render`。只换导演模型、仍在本机出片：对方只出 `plan.json`，你这台继续 `--from-plan`。
 
 ## 接到本仓库出成片
 
