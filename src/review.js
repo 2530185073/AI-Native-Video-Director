@@ -116,11 +116,17 @@ export async function probeRender({ videoPath, canvas = { width: 1080, height: 1
 }
 
 /**
- * Fresh render URLs on the OSS CDN occasionally refuse the first connection from
- * Node's fetch; retry with backoff, then fall back to curl when it is on PATH.
+ * Prefer curl --http1.1 for CDN/OSS downloads (Node fetch often hangs or stalls
+ * on the first TLS handshake). Fall back to fetch when curl is unavailable.
  */
 export async function downloadFile(url, target, { fetchImpl = fetch, attempts = 3, curl = process.env.CURL_PATH || 'curl' } = {}) {
   let lastError;
+  try {
+    await run(curl, ['-sSL', '--http1.1', '--fail', '--connect-timeout', '30', '--max-time', '600', '-o', target, url]);
+    return target;
+  } catch (error) {
+    if (error.code !== 'ENOENT') lastError = error;
+  }
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       const response = await fetchImpl(url);
@@ -131,12 +137,6 @@ export async function downloadFile(url, target, { fetchImpl = fetch, attempts = 
       lastError = error;
       if (attempt < attempts) await sleep(1500 * attempt);
     }
-  }
-  try {
-    await run(curl, ['-sSL', '--fail', '--max-time', '600', '-o', target, url]);
-    return target;
-  } catch (error) {
-    if (error.code !== 'ENOENT') lastError = error;
   }
   throw new Error(`download failed: ${lastError?.cause?.code || lastError?.cause?.message || lastError?.message} ${url.slice(0, 120)}`);
 }
@@ -221,14 +221,16 @@ export function applyReviewCaps(review) {
 
 function summarizePlanForReview(plan, frames, layout) {
   const pct = value => `${Math.round(value * 100)}%`;
+  const hasPunch = typeof layout?.punch === 'function';
+  const hasBroll = typeof layout?.broll === 'function';
   const beats = (plan.beats || []).map(beat => {
     if (beat.type === 'punch') {
       const asked = beat.position || 'above_head';
-      const resolved = layout ? layout.punch(asked).resolved : asked;
+      const resolved = hasPunch ? layout.punch(asked).resolved : asked;
       return `punch「${beat.text}」@chunk${beat.chunkId} 位置 ${resolved}${resolved !== asked ? `（方案写的是 ${asked}，因头顶空间不足自动落位）` : ''}`;
     }
     if (beat.type === 'broll') {
-      const resolved = layout ? layout.broll(beat.layout).layout : beat.layout;
+      const resolved = hasBroll ? layout.broll(beat.layout).layout : beat.layout;
       return `broll ${resolved}${resolved !== beat.layout ? `（方案写的是 ${beat.layout}）` : ''} chunk${beat.fromChunk}-${beat.toChunk}`;
     }
     if (beat.type === 'zoom') return `zoom ×${beat.scale} chunk${beat.fromChunk}-${beat.toChunk}`;
