@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { buildPlanSchema, validatePlan } from '../src/director/schema.js';
 import { DEFAULT_LIMITS, colorFamily, lintPlan, STATIC_FILL_REASON } from '../src/director/lint.js';
@@ -112,6 +115,8 @@ test('director system prompt is the SKILL.md knowledge pack without front-matter
   assert.ok(!/来源与依据/.test(skill), 'maintainer notes stripped');
   assert.ok(skill.includes('前 3 秒不放全屏 B-roll'));
   assert.ok(skill.includes('只输出 JSON'));
+  assert.ok(skill.includes('W0BpSlRRRldCZlhQTFpAaERcUw=='), 'portable skill embeds flower IDs');
+  assert.ok(skill.includes('talk_default'), 'portable skill embeds default BGM id');
   assert.equal(loadDirectorSkill('/nonexistent/SKILL.md'), null);
 
   const { chunks, duration } = fixture();
@@ -119,6 +124,21 @@ test('director system prompt is the SKILL.md knowledge pack without front-matter
   assert.match(budget, /punch 约 \d+-\d+ 个/);
   assert.ok(budget.includes(`片段 ${chunks[0].id} 应有 punch`));
   assert.ok(budget.includes('死中段'), '22s clip still has a 12-19s middle');
+});
+
+test('portable skill example plan is schema-valid for other models to copy', () => {
+  const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const plan = JSON.parse(readFileSync(resolve(root, 'skills/talking-head-second-cut/examples/plan.example.json'), 'utf8'));
+  const catalog = JSON.parse(readFileSync(resolve(root, 'skills/talking-head-second-cut/catalog.json'), 'utf8'));
+  const chunks = [
+    { id: 1, text: '你以为真银元很贵？' },
+    { id: 2, text: '一枚流通品大概一万块。' },
+    { id: 3, text: '看币，越看越懂。' }
+  ];
+  assert.equal(validatePlan(plan, { chunks }).length, 0);
+  assert.ok(catalog.punch.flowerId.some(item => item.id === 'W0BpSlRRRldCZlhQTFpAaERcUw=='));
+  assert.equal(plan.bgm.track, 'talk_default');
+  assert.equal(plan.subtitleStyle.background.enabled, false);
 });
 
 test('lint applies the editing doctrine: hook stays on the face, zooms breathe, static stretches get a gentle push', () => {

@@ -1,47 +1,73 @@
 # 口播二次精剪 · 可移植导演 Skill
 
-给**任意模型**当「后期总监」：读文案和字幕片段表，只输出一份 `plan.json`。本仓库的编译器 / VectCut 负责落到成片，模型不碰时间轴、不调接口。
+给**任意模型**当后期总监：读文案和字幕片段表，只输出一份 `plan.json`。本仓库的编译器 / VectCut 落到成片；模型不碰时间轴、不调接口。
 
 ```
-任意模型（Claude / GPT / Gemini / 本地）
-        │  system = SKILL.md
-        │  user   = user-prompt.template.md 填好的内容
+任意模型（Claude / GPT / Gemini / 本地 / Cursor）
+        │  system = SKILL.md（已含词表速查）
+        │  user   = 按 user-prompt.template.md 填好
+        │  可选    output.schema.json / catalog.json
         ▼
-    plan.json   ← 只这一份决策
+    plan.json
         │
         ▼
 node src/cli.js --from-plan plan.json --video … --script … --render
-        │
-        ▼
-草稿 + 云渲染 mp4
 ```
 
-本仓库默认路径里，Gemini 也会读同一份 `SKILL.md` 当 system prompt（`src/director/prompt.js` 会去掉 YAML 和「来源」节）。换模型 = 换 LLM，不必改决策规则。
+本仓库默认 Gemini 也读同一份 `SKILL.md`（`src/director/prompt.js` 会去掉 YAML 和「来源」节）。换模型 = 换 LLM，不必改决策规则。
 
 ## 目录
 
 | 文件 | 给谁 | 做什么 |
 | --- | --- | --- |
-| `SKILL.md` | 任何模型的 **system prompt** | 心法、流程、硬指标、反模式、输出契约 |
-| `catalog.md` | 模型（贴进 user）/ 人 | 全部合法名称与花字 ID |
+| `SKILL.md` | 任何模型的 **system prompt** | 心法、流程、硬指标、反模式、输出契约、**词表速查** |
+| `skill.json` | 调用方 / 技能目录 | 清单、版本、产品锁、接入方式 |
+| `catalog.md` | 模型（可再贴进 user）/ 人 | 完整合法名称与花字 ID |
+| `catalog.json` | API / Structured Output | 同上，机器可读 |
 | `user-prompt.template.md` | 调用方 | 填视频信息、文案、片段表后发给模型 |
-| `output.schema.json` | 支持 Structured Output 的模型 | 机器校验用 JSON Schema |
-| `examples/plan.example.json` | 对照 | 一份合法 plan 形状 |
+| `output.schema.json` | 支持 Structured Output 的模型 | 机器校验 |
+| `examples/user.example.md` | 对照 | 填好的 user |
+| `examples/plan.example.json` | 对照 | 对应的合法 plan |
 
-## 其他模型怎么用（不跑本仓库也行）
+把**整个目录**交给另一个模型或同事即可，不必再解释规则。
 
-1. System：整份 `SKILL.md`（可去掉文末「来源」）。
-2. User：按 `user-prompt.template.md` 填。词表可直接粘 `catalog.md`，或只贴「可用词表」那一节。
-3. 要求模型 **只输出 JSON**。有 Structured Output 的，把 `output.schema.json` 挂上。
-4. 校验：每个 `chunks[].id` 必须出现在你给的片段表里；`beats` 只引用这些 id；`highlights` / `punch.text` 必须是对应字幕里的子串或精炼。
-5. 把 JSON 存成 `plan.json`。
+## 其他模型怎么用
+
+### 1）对话产品（Claude / ChatGPT / Gemini 网页）
+
+1. System / 自定义指令 / Project 知识：整份 `SKILL.md`（可删文末「来源」）。
+2. 用户消息：按 `user-prompt.template.md` 填。需要加强约束时再粘 `catalog.md`。
+3. 要求 **只输出 JSON**。对照 `examples/` 看形状。
+4. 存成 `plan.json`。
+
+### 2）API（OpenAI / Anthropic / Gemini / 兼容接口）
+
+```text
+system: SKILL.md 全文
+user:   填好的模板
+response_format / structured output: output.schema.json
+```
+
+校验：每个 `chunks[].id` 必须在你给的片段表里；`beats` 只引用这些 id；`highlights` / `punch.text` 必须是对应字幕的子串或精炼。
+
+### 3）装到 Cursor / Claude Code（让别的 agent 自动用）
+
+```bash
+# Cursor 项目级
+cp -R skills/talking-head-second-cut .cursor/skills/
+
+# Claude Code 项目级
+cp -R skills/talking-head-second-cut .claude/skills/
+
+# 或用户级
+cp -R skills/talking-head-second-cut ~/.cursor/skills/
+```
 
 模型**不要**写秒数、不要发明花字 ID、不要给字幕加黑底、不要把花字放 `chest`。
 
 ## 接到本仓库出成片
 
 ```bash
-# 1) 其他模型产出 plan.json 之后：
 node src/cli.js \
   --video ./first-cut.mp4 \
   --audio ./voice.mp3 \
@@ -52,7 +78,7 @@ node src/cli.js \
   --render
 ```
 
-`--from-plan` 会跳过本仓库内置的 Gemini 导演，改用你这份 JSON。本地 `normalizePlan` / `lint` 仍会锁字幕样式、把 `chest` 抬到 `top`、默认垫乐 `talk_default`。
+`--from-plan` 跳过内置 Gemini 导演，改用你这份 JSON。本地 `normalizePlan` / `lint` 仍会锁字幕样式、把 `chest` 抬到 `top`、默认垫乐 `talk_default`。
 
 继续用本仓库内置导演（不换模型）：
 
@@ -69,7 +95,7 @@ node src/cli.js --video … --script … --brief … --render
 
 模型只做包装决策，不剪时间线。
 
-## 产品锁（模型写错也会被系统改掉）
+## 产品锁（模型写错也会被本仓库改掉）
 
 - 字幕：新青年体 / 13 / `#FFFFFF` / 描边 `#000000` 宽 40 透明度 40 / `transformY=-0.4` / **无黑色底条**
 - 花字默认画面最上方（`top` / `above_head`），禁止压在字幕上

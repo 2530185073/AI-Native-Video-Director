@@ -90,7 +90,7 @@ node src/cli.js ... --bgm none
 
 `--from-plan plan.json` 可以跳过内置导演，用人工审过、或**其他模型**按 `skills/talking-head-second-cut/` 产出的方案直接出草稿；`--words words.json` 传入你自己的逐字时间戳（任意常见格式，宽松解析）。
 
-换模型当导演：把 `skills/talking-head-second-cut/SKILL.md` 当 system prompt，`user-prompt.template.md` + `catalog.md` 当 user，只收 JSON，再 `--from-plan`。详见该目录 README。
+换模型当导演：把整个 `skills/talking-head-second-cut/` 交给对方即可。`SKILL.md` 当 system prompt（已含词表速查），按 `user-prompt.template.md` 填 user，只收 JSON，再 `--from-plan`。也可复制到 `.cursor/skills/` 或 `.claude/skills/`。详见该目录 README。
 
 `brief.json` 示例：
 
@@ -156,7 +156,7 @@ src/
   pipeline.js     编排
   cli.js          命令行
 test/             node:test，全部 mock，不需要任何 key
-skills/           talking-head-second-cut/SKILL.md —— 导演技能本体（决策流程、硬指标、反模式、来源）
+skills/           talking-head-second-cut/ —— 可移植导演 skill（SKILL.md + 词表 + schema + 示例；任意模型只出 plan.json）
 docs/             architecture.md（模块细节）、inputs.md（输入清单与“还缺什么”）、asr.md、research-notes.md（调研结论 → 落地对照）
 ```
 
