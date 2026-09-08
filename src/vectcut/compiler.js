@@ -295,6 +295,8 @@ function compileBroll(beat, { chunks, layout, canvas, limits, style, inputs = {}
     aspect: placement.aspect,
     stylePrompt: style,
     target: { widthPx: placement.widthPx, heightPx: placement.heightPx, fit: covers ? 'cover' : 'contain' },
+    // Image gateways flake; keep the talking-head cut even when a picture fails to generate.
+    optional: true,
     params: {
       start: round2(start),
       end: round2(end),
