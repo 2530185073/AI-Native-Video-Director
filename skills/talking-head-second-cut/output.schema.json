@@ -1,0 +1,445 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "concept",
+    "tone",
+    "subtitleStyle",
+    "bgm",
+    "chunks",
+    "beats"
+  ],
+  "properties": {
+    "concept": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 200
+    },
+    "tone": {
+      "type": "string",
+      "enum": [
+        "energetic",
+        "authoritative",
+        "friendly",
+        "storytelling",
+        "playful",
+        "urgent"
+      ]
+    },
+    "bgm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "track",
+        "reason"
+      ],
+      "properties": {
+        "track": {
+          "type": "string",
+          "enum": [
+            "talk_default",
+            "lofi_clean",
+            "soft_pad",
+            "none"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        }
+      }
+    },
+    "subtitleStyle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "font",
+        "fontSize",
+        "color",
+        "strokeColor",
+        "strokeWidth",
+        "highlightColor",
+        "highlightScale",
+        "position",
+        "intro"
+      ],
+      "properties": {
+        "font": {
+          "type": "string",
+          "enum": [
+            "新青年体",
+            "SourceHanSansCN_Bold",
+            "HarmonyOS_Sans_SC_Bold",
+            "MiSans_Heavy",
+            "ResourceHanRoundedCN_Md",
+            "LXGWWenKai_Bold",
+            "SourceHanSerifCN_SemiBold",
+            "ZY_Vigorous"
+          ]
+        },
+        "fontSize": {
+          "type": "number",
+          "minimum": 6,
+          "maximum": 16
+        },
+        "color": {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        },
+        "strokeColor": {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        },
+        "strokeWidth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60
+        },
+        "strokeOpacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "描边透明度 0-100（精确字幕模式常用 40）"
+        },
+        "highlightColor": {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        },
+        "highlightScale": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 1.6
+        },
+        "position": {
+          "type": "string",
+          "enum": [
+            "lower_third",
+            "center_low",
+            "bottom"
+          ]
+        },
+        "transformY": {
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1,
+          "description": "CapCut 中心原点 Y，口播字幕默认 -0.4"
+        },
+        "intro": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "弹入",
+            "向上滑动",
+            "向下飞入",
+            "渐显",
+            "放大",
+            "缩小",
+            "打字机_I",
+            "逐字显影",
+            "弹簧",
+            "甩出",
+            "故障打字机",
+            "弹性伸缩",
+            "闪动",
+            "冲屏位移",
+            null
+          ]
+        },
+        "bold": {
+          "type": "boolean"
+        },
+        "background": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enabled"
+          ],
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "color": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "alpha": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        }
+      }
+    },
+    "chunks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "highlights"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "highlights": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 12
+            },
+            "maxItems": 3
+          },
+          "hide": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "beats": {
+      "type": "array",
+      "maxItems": 80,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "reason"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "punch",
+              "zoom",
+              "broll",
+              "effect"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 120
+          },
+          "chunkId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "fromChunk": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "toChunk": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 14
+          },
+          "flowerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "W0FmRVRXQV1EZ1JRS11BbEBWVQ==",
+              "W0BpSlRRRldCZlhQTFpAaERcUw==",
+              "WklvQVJSR1FAalxTTFtObUFVUw==",
+              "WkhtRF1QQlNBZllSTFlMZktSUg==",
+              "WkprRFxVRVxEaV1TQFlIakRUVQ==",
+              "W0BuQldSQFZCbllUSVVJZkVVVA==",
+              "WkpuRFxRQlBNalpSS19IaUNSVg==",
+              "W0BmQFNaQVJBbFlRTVlLbkBdUA==",
+              "W0BtRFRVQlRAa19XSFpBa0tWUQ==",
+              "WktrQVNSR1FDaFJXQFVObUVcVA==",
+              "W0FmRVRQSlZGb15QT1RJbEVcUA==",
+              "WkhpQ1BaRF1Bal1dT1RAbkJRUw==",
+              "WkppQVJWS1RNbFlVQFtMa0ZcUg==",
+              "Wk1vRFZWQFJGb1NUTFVKaUdRUA==",
+              null
+            ]
+          },
+          "color": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "fontSize": {
+            "type": "number",
+            "minimum": 10,
+            "maximum": 30
+          },
+          "intro": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "弹入",
+              "向上滑动",
+              "向下飞入",
+              "渐显",
+              "放大",
+              "缩小",
+              "打字机_I",
+              "逐字显影",
+              "弹簧",
+              "甩出",
+              "故障打字机",
+              "弹性伸缩",
+              "闪动",
+              "冲屏位移",
+              null
+            ]
+          },
+          "outro": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "渐隐",
+              "向上滑动",
+              "缩小",
+              "溶解",
+              "闪动",
+              "弹出",
+              "缩小",
+              "向上滑动",
+              "向下滑动",
+              "向左滑动",
+              "向右滑动",
+              "轻微放大",
+              "跳转闭幕",
+              null
+            ]
+          },
+          "loop": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "轻微跳动",
+              "跳动",
+              "晃动",
+              "颤抖",
+              "闪烁",
+              "扫光",
+              "摇摆",
+              "故障闪动",
+              "呐喊",
+              null
+            ]
+          },
+          "position": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "above_head",
+              "top",
+              "beside_face",
+              "center",
+              "chest",
+              null
+            ]
+          },
+          "scale": {
+            "type": "number",
+            "minimum": 1.03,
+            "maximum": 1.35,
+            "description": "zoom 必填，推镜倍率 1.03-1.35，常用 1.08-1.15"
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 400,
+            "description": "broll 必填，生图提示词，写实物/场景，禁止出现文字"
+          },
+          "layout": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "card_top",
+              "pip_face",
+              "fullscreen",
+              "pip_side",
+              "lower_card",
+              null
+            ],
+            "description": "broll 必填：card_top / fullscreen / pip_side / lower_card"
+          },
+          "imageIntro": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "放大",
+              "动感放大",
+              "轻微放大",
+              "渐显",
+              "向上滑动",
+              "向下滑动",
+              "向左滑动",
+              "向右滑动",
+              "向下甩入",
+              "旋转开幕",
+              "抖动下降",
+              null
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "变焦推镜",
+              "镜头变焦",
+              "色差故障",
+              "电影感画幅",
+              "模糊开幕",
+              "渐隐闭幕",
+              "星光",
+              "放大镜",
+              null
+            ],
+            "description": "effect 必填，场景特效名，从词表选"
+          },
+          "sfx": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "whoosh",
+              "whoosh_soft",
+              "pop",
+              "click",
+              "ding",
+              "error",
+              "success",
+              null
+            ]
+          }
+        }
+      }
+    }
+  }
+}

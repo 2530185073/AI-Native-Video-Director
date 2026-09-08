@@ -1,327 +1,185 @@
 # AI-Native-Video-Director
 
-> AI 原生短视频导演系统（AI Video Director）。
->
-> 不是固定模板剪辑，而是让 AI 理解内容、理解观众、理解画面，并自主决定如何完成口播、混剪、信息流广告视频生产。
+> 给数字人口播成片做 **AI 导演级二次精剪**：AI 决定哪句要高亮、哪个词要砸大字、哪里推镜、哪里补画面，然后通过 VectCut（流光剪辑）接口落成可编辑草稿并云渲染。
+
+不是套模板。模板决定“长什么样”，这里由 AI 根据**这一条**文案的内容、节奏和目的决定“该做什么、不该做什么”，规则层只负责兜底（不遮脸、不过密、不越权）。
 
 ---
 
-## 项目定位
-
-传统 AI 剪辑工具主要解决：
-
-- 自动加字幕
-- 自动套模板
-- 自动切片
-- 自动生成简单包装
-
-本项目目标是构建一个 **AI 视频导演 Agent**。
-
-AI 不只是执行剪辑动作，而是完成导演工作：
-
-- 判断哪里应该保留人物表达
-- 判断哪里应该展示商品或案例
-- 判断哪些关键词值得强调
-- 判断什么时候需要图片解释
-- 判断什么时候需要局部放大
-- 判断什么时候需要节奏变化
-- 判断什么时候应该保持干净，不添加任何效果
-
-最终输出：
+## 输入 → 输出
 
 ```
-原始视频
-    ↓
-AI理解内容
-    ↓
-生成剪辑方案
-    ↓
-调用剪辑引擎
-    ↓
-生成可编辑草稿
-    ↓
-云渲染成片
+初版 mp4（数字人成片，气口已剪，人物位置固定）
+文案对应 mp3（可选，做 ASR 更干净）
+原始文案
+逐字对照（默认 Groq Whisper 词级时间戳 + 本地字符级对齐；也可接你自己的接口 / 直接传时间戳 / VectCut 兜底）
+数字人在画面中的位置框（可选，有默认值）
+        │
+        ▼
+ ⓪ 开拍前看素材      抽一帧给 Gemini：人脸/人物框、字幕区是否杂乱（印花衣服）、衣着颜色 → source 观察
+ ① 逐字时间轴        文案的每个字 ↔ 音频时间戳（Levenshtein 字符级对齐）
+ ② 短句切片          8-14 字一屏、按停顿和标点切，带逐字时间
+ ③ AI 导演决策       任意模型（默认 Gemini）读 skills/talking-head-second-cut/SKILL.md → Editing Plan JSON；也可换模型出 plan 再 --from-plan
+                    提示里带构图等级（tight/medium/wide）、素材观察、按信息密度缩放的节奏预算
+ ④ 规则审片 lint     高亮必须在字幕里、不遮脸、不进平台 UI 遮挡区、前 3 秒不切全屏图、最后一句留人脸、推镜 ≥2s 且间隔 ≥2.5s、
+                    B-roll ≤42% 且全屏 ≥2s、近景小卡升级 pip_face、白 + 一个强调色、只有一个 apex 花字、音效语法、
+                    >8s 静止段补轻推、字幕无黑底、花字抬到顶部、每分钟密度上限……
+ ⑤ 编译             Plan → VectCut 操作序列（纯函数，可 dry-run 审阅）；字幕比语音提前 120ms
+ ⑥ 执行             建草稿 / 主视频 / BGM 铺满 / 关键帧推镜 / 批量字幕 / 花字 / 生图 B-roll（含圆形人物小窗）/ 特效 / 音效 / query_script 校验
+ ⑦ 云渲染（可选）    generate_video → task_status → mp4
+ ⑧ 审片（可选）      ffprobe 技术门禁（画幅/时长/音轨）→ ffmpeg 抽帧拼 contact-sheet.jpg → Gemini 看图打分 review.json（含承诺核对）
+ ⑨ 修订一轮（可选）  审片判 fix 时把问题回灌导演重做、重渲、再审（--fix），首版留在 v1/
+        │
+        ▼
+可在剪映里继续改的草稿 + 渲染成片 + plan.json / ops.json / review.json 留档
 ```
 
 ---
 
-# 核心能力
+## AI 能决策什么（全部通过 VectCut API 落地）
 
-## 1. Multi LLM AI Brain
+| 决策 | 落地方式 | VectCut 接口 |
+| --- | --- | --- |
+| 字幕整体风格：字体、字号、描边、位置、入场 | 全片统一样式，一次批量写入 | `add_batch_text`（失败自动逐条 `add_text`） |
+| 每句要变色/放大的关键词（0-2 个） | `text_styles` 局部样式 | `add_batch_text.text_styles_list` |
+| 爆点词大字（数字/价格/结论/反转/CTA） | 花字 or 纯色大字 + 入场/循环/出场动画，出现在人物头顶/脸侧/顶部 | `add_text` + `effect_effect_id` |
+| 镜头轻推强调（1.08-1.2，2-5 秒回落） | `uniform_scale` + `position_*_px` 关键帧，锁定脸部不跑偏 | `add_video_keyframe` |
+| B-roll 补画面（商品/场景/对比/数据） | AI 写生图 prompt → Gemini 原生生图 → 上传临时 OSS → 全屏 / 全屏 + 人物圆形小窗（pip_face，近景首选）/ 头顶卡片 / 脸侧画中画 / 字幕上横卡 | `IMAGE_PROVIDER=gemini` + `add_image`（pip_face 另加一条圆形蒙版的静音 `add_video`） |
+| 场景特效（转折色差故障、开场模糊、电影画幅…） | 极低频、短时长 | `add_effect` |
+| 音效（pop / ding / whoosh / click / error / success） | 挂在 beat 上，在花字弹出、全屏图切入、金句的瞬间响一下；自动裁到最有力的 0.4-0.9 秒，双轨避免撞车 | `add_audio` |
+| 背景音乐选曲（Lo-Fi / 软垫乐 / 轻快口播 / 不加） | 按内容气质选，全片 12% 音量铺满（短曲自动循环、首尾淡入淡出） | `add_audio` |
+| 什么都不做 | `hide` 片段 / 不给 beat | — |
 
-支持接入：
+所有效果名与花字 ID 都来自一份**云渲染可用**的词表（`src/director/catalog.js`），AI 只能从中选，避免渲染时静默丢效果。音效/音乐素材在 `src/director/audio.js`，可换成自己的授权素材。
 
-- GPT
-- Claude
-- Gemini
-- DeepSeek
-- Grok
-- GLM
-- Kimi
-
-不同模型承担不同角色：
-
-| 模型 | 方向 |
-|-|-|
-| GPT | 总导演、综合决策 |
-| Claude | 长视频理解、复杂规划 |
-| Gemini | 视频视觉理解、生图 |
-| DeepSeek | 低成本批量任务 |
-| Kimi | 中文长内容理解 |
-| Grok | 热点、网感分析 |
-| GLM | 国产生态适配 |
+> 注意：VectCut `add_audio` 的 `volume` 是 **dB** 不是线性值（传 `0.12` 等于 +0.12 dB ≈ 原音量）。本项目配置一律用直观的线性值（`BGM_VOLUME=0.12`），编译器内部换算成 `-18.42 dB`，`query_script` 里可以看到草稿实际 `volume: 0.12`。
 
 ---
 
-# 2. ASR 视频理解层
+## 快速开始
 
-基于：
+```bash
+cp .env.example .env   # 填 LLM_API_KEY / VECTCUT_API_KEY / GROQ_API_KEY（其余可选）
+npm test               # 60 个单测 + mock 端到端
 
-- Groq Whisper
-- word level timestamp
-- 字符级文本对齐
+# 只出方案不花钱：dry-run 生成 plan.json + ops.json
+node src/cli.js \
+  --video https://cdn.example.com/first-cut.mp4 \
+  --audio https://cdn.example.com/voice.mp3 \
+  --script ./script.txt \
+  --person 0.2,0.18,0.6,0.82 \
+  --brief ./brief.json \
+  --dry-run
 
-能力：
+# 正式生成草稿（并云渲染）
+node src/cli.js --video ... --audio ... --script ./script.txt --render
 
-- 精确字幕同步
-- 口播文案校正
-- 气口检测
-- 停顿压缩
-- 时间轴重映射
+# 渲染后自动审片：ffprobe 门禁 + 抽帧拼图 + Gemini 视觉打分（hook / 可读性 / 遮脸 / 安全区 / 节奏 / 风格），输出 review.json
+node src/cli.js --video ... --audio ... --script ./script.txt --review
 
-流程：
+# 审片判 fix 就自动修一轮：问题回灌导演 → 重做 plan → 重渲 → 再审（首版留在 out/<dir>/v1/）
+node src/cli.js --video ... --audio ... --script ./script.txt --fix
 
-```
-Whisper
- ↓
-词级时间戳
- ↓
-字符级 Alignment
- ↓
-字幕结构化
- ↓
-剪辑时间轴
-```
+# 跳过开拍前的素材检查（默认会抽一帧让 Gemini 看人脸位置 / 字幕区是否杂乱 / 衣着颜色）
+node src/cli.js ... --no-inspect
 
-代码：
-
-```
-src/asr/
+# 固定一首 BGM / 关掉 BGM / 调音量（线性值）
+node src/cli.js ... --bgm https://assets.mixkit.co/music/764/764.mp3 --bgm-volume 0.12 --sfx-volume 0.5
+node src/cli.js ... --bgm none
 ```
 
----
+`--from-plan plan.json` 可以跳过内置导演，用人工审过、或**其他模型**按 `skills/talking-head-second-cut/` 产出的方案直接出草稿；`--words words.json` 传入你自己的逐字时间戳（任意常见格式，宽松解析）。
 
-# 3. AI Director 决策系统
+换模型当导演：把整个 `skills/talking-head-second-cut/` 交给对方即可。`SKILL.md` 当 system prompt（已含词表速查），按 `user-prompt.template.md` 填 user，只收 JSON，再 `--from-plan`。也可复制到 `.cursor/skills/` 或 `.claude/skills/`。详见该目录 README。
 
-核心不是模板，而是生成 Editing Plan。
+**Skill 里没有 API key。** 另一台机器要无缝出片：拷仓库 + 拷 `.env`（或按 `.env.example` 另填 `LLM_API_KEY` / `VECTCUT_API_KEY` / `GROQ_API_KEY`），然后 `node src/cli.js --check`。
 
-例如：
+`brief.json` 示例：
 
 ```json
 {
- "scene":"产品细节解释",
- "keep_person":false,
- "visual":"product_zoom",
- "subtitle_highlight":["一万左右"],
- "motion":"zoom_in"
+  "platform": "抖音",
+  "audience": "30-45 岁收藏爱好者",
+  "goal": "引导私信咨询",
+  "brand": { "name": "XX 藏品", "primaryColor": "#FFD700", "avoid": "不要红色、不要综艺感" },
+  "styleNotes": "专业但不高冷，重点数据一定要看得见"
 }
 ```
 
-AI 负责决定：
+程序化调用：
 
-- 镜头语言
-- 字幕策略
-- 视觉补充
-- 动效选择
-- 节奏变化
+```js
+import { directSecondCut, createLLM, createVectCutClient, createImageProvider } from './src/index.js';
 
----
-
-# 4. Gemini Image Vision
-
-用于：
-
-## Vision
-
-分析：
-
-- 人物位置
-- 商品位置
-- 空白区域
-- 可放文字区域
-- 视觉重点
-
-## Image Generation
-
-生成：
-
-- 信息图
-- 背景视觉
-- 概念素材
-- 营销辅助图片
-
----
-
-# 5. VectCut Editing Engine
-
-VectCut 作为执行层。
-
-负责：
-
-- 创建草稿
-- 添加字幕
-- 添加图片
-- 添加视频轨
-- 关键帧动画
-- 修改草稿
-- 云渲染
-- 输出成片
-
-架构：
-
-```
-AI Editing Plan
-        ↓
-VectCut Adapter
-        ↓
-Draft
-        ↓
-Render
+const vectcut = createVectCutClient();
+const result = await directSecondCut(
+  { videoUrl, audioUrl, script, person: { x: 0.2, y: 0.18, w: 0.6, h: 0.82 }, brief },
+  { llm: createLLM(), vectcut, imageProvider: createImageProvider({ client: vectcut }) }
+);
+console.log(result.draft.url, result.plan);
 ```
 
 ---
 
-# 支持场景
+## Editing Plan（AI 的输出）
 
-## 口播视频
+AI 不写秒数，只引用字幕片段 id；时间由代码从对齐结果解析，杜绝时间轴漂移。完整 schema 见 `src/director/schema.js`，示例：
 
-例如：
-
-- 知识分享
-- 商品讲解
-- 专业领域内容
-
-## 混剪视频
-
-例如：
-
-- 产品营销
-- 案例展示
-- 热点内容
-
-## 信息流广告
-
-例如：
-
-- 抖音广告
-- 视频号广告
-- 小红书内容
+```json
+{
+  "concept": "知识类口播：白字黑边+黄色高亮，克制推镜，讲到实物时全屏图",
+  "tone": "authoritative",
+  "bgm": { "track": "lofi_clean", "reason": "知识类内容，干净的 Lo-Fi 不抢戏" },
+  "subtitleStyle": { "font": "SourceHanSansCN_Bold", "fontSize": 10, "color": "#FFFFFF", "strokeColor": "#000000", "strokeWidth": 20, "highlightColor": "#FFE14D", "highlightScale": 1.25, "position": "lower_third", "intro": null },
+  "chunks": [ { "id": 2, "highlights": ["一万"] }, { "id": 7, "highlights": ["26.8克"] } ],
+  "beats": [
+    { "type": "punch", "chunkId": 2, "text": "一万块", "flowerId": "W0BpSlRRRldCZlhQTFpAaERcUw==", "fontSize": 20, "intro": "弹入", "loop": "轻微跳动", "position": "above_head", "sfx": "ding", "reason": "价格是 hook" },
+    { "type": "zoom", "fromChunk": 3, "toChunk": 4, "scale": 1.12, "reason": "结论句强调" },
+    { "type": "broll", "fromChunk": 7, "toChunk": 7, "prompt": "一枚民国袁大头银元放在电子秤上，特写，柔和侧光，写实摄影，画面中没有文字", "layout": "fullscreen", "imageIntro": "渐显", "reason": "讲到具体重量，需要看到实物" },
+    { "type": "effect", "fromChunk": 12, "toChunk": 12, "name": "色差故障", "reason": "结尾反转" }
+  ]
+}
+```
 
 ---
 
-# 项目架构
+## 目录
 
 ```
 src/
-
-├── asr/
-│   └── Whisper + Alignment
-│
-├── agent/
-│   └── AI Director
-│
-├── providers/
-│   └── LLM Providers
-│
-├── vision/
-│   └── Gemini Vision/Image
-│
-├── schemas/
-│   └── Editing Plan
-│
-├── editing/
-│   └── VectCut Adapter
-│
-└── core/
-    └── Pipeline
+  asr/            Groq Whisper（默认）、字符级对齐、外部逐字对照适配、VectCut ASR 兜底、（可选）去气口
+  timeline/       任意 ASR 输出归一化、短句切片器
+  layout/         人物框 → VectCut 中心坐标系像素位置、构图等级、pip_face 圆窗几何、推镜锚点
+  director/       效果词表、音效/BGM 素材库、Plan schema、prompt（加载 SKILL.md + 密度感知的节奏预算）、planner（校验+修复循环）、lint
+  inspect.js      开拍前：抽帧 → Gemini 看人脸框 / 字幕区是否杂乱 / 衣着颜色
+  review.js       渲染后 QC：ffprobe 门禁 → 抽帧 → contact sheet → 视觉审片（硬性上限 + 承诺核对）
+  providers/      llm/gemini（默认，原生 generateContent）+ openai-compatible 备用、image（默认 Gemini 原生生图 / VectCut 聚合 / OpenAI-compatible）
+  vectcut/        真实 API 客户端、Plan→操作编译器、执行器（fallback/dry-run）、缩放换算
+  pipeline.js     编排
+  cli.js          命令行
+test/             node:test，全部 mock，不需要任何 key
+skills/           talking-head-second-cut/ —— 可移植导演 skill（SKILL.md + 词表 + schema + 示例；任意模型只出 plan.json）
+docs/             architecture.md（模块细节）、inputs.md（输入清单与“还缺什么”）、asr.md、research-notes.md（调研结论 → 落地对照）
 ```
 
 ---
 
-# 开发路线图
+## 设计取舍
 
-## Phase 1 - MVP（当前目标）
+- **AI 决策，代码执行。** LLM 只输出“意图”（哪个片段、什么类型、为什么），像素坐标、时间戳、接口参数全部由确定性代码生成，可测、可回放。
+- **词表白名单。** 只暴露云渲染支持的动画/花字/字体，宁少勿错。
+- **先 dry-run 再花钱。** `ops.json` 就是将要发给 VectCut 的每一次调用，人可以先看。
+- **降级链。** 批量字幕失败→逐条；特效/BGM 失败→跳过并记录；结构化输出被拒→json_object→纯文本解析；LLM 方案不合规→带错误信息重试。
+- **去气口不在主链路。** 你的初版已经剪掉气口，`src/asr/debreath.js` 保留为可选工具。
 
-目标：
+## 路线
 
-> 一条口播视频自动生成 VectCut 可编辑草稿。
-
-完成：
-
-- [x] 项目初始化
-- [x] ASR Pipeline
-- [x] 字幕时间轴系统
-- [x] Editing Plan Schema
-- [x] AI Director 基础流程
-
-开发中：
-
-- [ ] LLM Provider
-- [ ] Gemini Vision
-- [ ] VectCut 真执行接口
-- [ ] 自动生成第一版草稿
-
----
-
-## Phase 2 - AI 剪辑师
-
-增加：
-
-- 多模型协作
-- 自动素材搜索
-- 自动生图
-- 自动字幕包装
-- 自动节奏控制
-
----
-
-## Phase 3 - 自动审片 Agent
-
-AI 生成视频后自动检查：
-
-- 字幕是否错误
-- 节奏是否拖沓
-- 重点是否突出
-- 画面是否遮挡
-- 是否符合平台风格
-
-然后自动修改。
-
----
-
-## Phase 4 - 商业化平台
-
-目标：
-
-提供：
-
-- 企业账号
-- 行业模板能力
-- 素材资产库
-- AI 视频生产流水线
-
----
-
-# 设计原则
-
-1. AI 决策，不套固定模板
-2. 内容优先，特效服务表达
-3. 保留可编辑能力
-4. 支持真实商业生产
-5. AI 作为导演，而不是工具人
-
----
-
-# License
-
-TBD
+- [x] 数字人口播二次精剪 MVP（本仓库）
+- [x] 音效层：AI 在 punch/broll/effect 上挂音效，BGM 选曲 + 12% 铺满
+- [x] 逐字对照：Groq Whisper + 字符级对齐为默认（27s 口播 5s 出结果、98% 对齐）；VectCut sta 模式作为无 Groq 时的兜底
+- [x] 导演技能包：把口播剪辑的行业经验（hook 优先、按转折打断、推镜/B-roll/音效硬指标）写成 SKILL.md 直接作为系统提示，lint 用同一套数字守门
+- [x] 视觉审片：`--review` 渲染后抽帧拼图给 Gemini，检查 hook / 可读性 / 遮脸 / 安全区 / 节奏 / 风格一致并给出按秒数的修法
+- [x] 第三轮调研落地：近景 `pip_face`（全屏图 + 圆形人物小窗）、开拍前素材检查、白 + 一个强调色、单一 apex 花字、结尾留人脸、字幕提前 120ms、ffprobe 门禁、`--fix` 审片回灌修订
+- [ ] 审片结果回灌导演自动重剪（Reviewer → Director 闭环）
+- [ ] 字在人后（`submit_remove_bg_text_behind_task`）作为 opening hook 选项
+- [ ] 多条成片的风格记忆（同账号统一色系与花字）

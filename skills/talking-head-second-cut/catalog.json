@@ -1,0 +1,81 @@
+{
+  "tone": ["energetic", "authoritative", "friendly", "storytelling", "playful", "urgent"],
+  "bgm": [
+    { "id": "talk_default", "when": "默认。知识 / 干货 / 带货 / 生活" },
+    { "id": "lofi_clean", "when": "更理性干货（本仓库回落到 talk_default）" },
+    { "id": "soft_pad", "when": "情感 / 故事 / 慢节奏" },
+    { "id": "none", "when": "片子本身有音乐，或极其严肃" }
+  ],
+  "subtitle": {
+    "font": ["新青年体"],
+    "position": ["lower_third", "center_low", "bottom"],
+    "intro": [
+      "弹入",
+      "向上滑动",
+      "向下飞入",
+      "渐显",
+      "放大",
+      "缩小",
+      "打字机_I",
+      "逐字显影",
+      "弹簧",
+      "甩出",
+      "故障打字机",
+      "弹性伸缩",
+      "闪动",
+      "冲屏位移",
+      null
+    ]
+  },
+  "punch": {
+    "position": ["above_head", "top", "beside_face", "center"],
+    "forbiddenPosition": ["chest"],
+    "outro": ["渐隐", "向上滑动", "缩小", "溶解", "闪动", "弹出", null],
+    "loop": ["轻微跳动", "跳动", "晃动", "颤抖", "闪烁", "扫光", "摇摆", "故障闪动", "呐喊", null],
+    "flowerId": [
+      { "id": "W0FmRVRXQV1EZ1JRS11BbEBWVQ==", "name": "金色金属质感立体花字", "hue": "yellow" },
+      { "id": "W0BpSlRRRldCZlhQTFpAaERcUw==", "name": "黄色花字", "hue": "yellow" },
+      { "id": "WklvQVJSR1FAalxTTFtObUFVUw==", "name": "综艺黄色描边花字", "hue": "yellow" },
+      { "id": "WkhtRF1QQlNBZllSTFlMZktSUg==", "name": "综艺 白色", "hue": "white" },
+      { "id": "WkprRFxVRVxEaV1TQFlIakRUVQ==", "name": "系统故障字", "hue": "multi" },
+      { "id": "W0BuQldSQFZCbllUSVVJZkVVVA==", "name": "潮酷金黄色发光霓虹灯牌花字", "hue": "yellow" },
+      { "id": "WkpuRFxRQlBNalpSS19IaUNSVg==", "name": "知识-花字", "hue": "blue" },
+      { "id": "W0BmQFNaQVJBbFlRTVlLbkBdUA==", "name": "红色花字", "hue": "red" },
+      { "id": "W0BtRFRVQlRAa19XSFpBa0tWUQ==", "name": "简约黑色描边立体花字", "hue": "white" },
+      { "id": "WktrQVNSR1FDaFJXQFVObUVcVA==", "name": "小清新绿色描边花字", "hue": "green" },
+      { "id": "W0FmRVRQSlZGb15QT1RJbEVcUA==", "name": "蓝色斜向跳色花字", "hue": "blue" },
+      { "id": "WkhpQ1BaRF1Bal1dT1RAbkJRUw==", "name": "潮酷发光立体花字", "hue": "multi" },
+      { "id": "WkppQVJWS1RNbFlVQFtMa0ZcUg==", "name": "纸纹底手写纹理花字", "hue": "neutral" },
+      { "id": "Wk1vRFZWQFJGb1NUTFVKaUdRUA==", "name": "火焰立体", "hue": "red" }
+    ]
+  },
+  "broll": {
+    "layout": ["pip_face", "fullscreen", "card_top", "pip_side", "lower_card"],
+    "imageIntro": [
+      "放大",
+      "动感放大",
+      "轻微放大",
+      "渐显",
+      "向上滑动",
+      "向下滑动",
+      "向左滑动",
+      "向右滑动",
+      "向下甩入",
+      "旋转开幕",
+      "抖动下降"
+    ],
+    "outro": ["缩小", "向上滑动", "向下滑动", "向左滑动", "向右滑动", "轻微放大", "跳转闭幕"]
+  },
+  "effect": {
+    "name": ["变焦推镜", "镜头变焦", "色差故障", "电影感画幅", "模糊开幕", "渐隐闭幕", "星光", "放大镜"]
+  },
+  "sfx": [
+    { "id": "pop", "on": "punch 默认" },
+    { "id": "ding", "on": "价格 / 数字 / 金句" },
+    { "id": "error", "on": "警告 / 避坑" },
+    { "id": "success", "on": "结论 / 正确做法" },
+    { "id": "click", "on": "列表逐条" },
+    { "id": "whoosh", "on": "全屏图 / 切卡" },
+    { "id": "whoosh_soft", "on": "故事 / 轻推" }
+  ]
+}

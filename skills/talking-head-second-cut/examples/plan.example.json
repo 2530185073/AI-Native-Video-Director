@@ -1,0 +1,77 @@
+{
+  "concept": "知识类口播：白字黑边+黄色高亮，克制推镜，讲到实物用 pip_face",
+  "tone": "authoritative",
+  "bgm": {
+    "track": "talk_default",
+    "reason": "通用口播垫乐，不抢人声"
+  },
+  "subtitleStyle": {
+    "font": "新青年体",
+    "fontSize": 13,
+    "color": "#FFFFFF",
+    "strokeColor": "#000000",
+    "strokeWidth": 40,
+    "strokeOpacity": 40,
+    "highlightColor": "#FFE14D",
+    "highlightScale": 1.25,
+    "position": "lower_third",
+    "transformY": -0.4,
+    "intro": null,
+    "bold": true,
+    "background": { "enabled": false }
+  },
+  "chunks": [
+    { "id": 1, "highlights": [], "hide": false },
+    { "id": 2, "highlights": ["一万"], "hide": false },
+    { "id": 3, "highlights": [], "hide": false }
+  ],
+  "beats": [
+    {
+      "type": "punch",
+      "chunkId": 1,
+      "text": "真银元",
+      "flowerId": "W0BpSlRRRldCZlhQTFpAaERcUw==",
+      "color": null,
+      "fontSize": 18,
+      "intro": "弹入",
+      "loop": null,
+      "position": "top",
+      "outro": null,
+      "sfx": "pop",
+      "reason": "首句提炼品类，第一帧抓住目标观众"
+    },
+    {
+      "type": "punch",
+      "chunkId": 2,
+      "text": "一万块",
+      "flowerId": null,
+      "color": "#FFE14D",
+      "fontSize": 22,
+      "intro": "弹入",
+      "loop": "轻微跳动",
+      "position": "top",
+      "outro": null,
+      "sfx": "ding",
+      "reason": "全片 apex：价格是记忆点"
+    },
+    {
+      "type": "zoom",
+      "fromChunk": 3,
+      "toChunk": 3,
+      "scale": 1.12,
+      "sfx": null,
+      "reason": "结论句轻推，看人脸"
+    },
+    {
+      "type": "broll",
+      "fromChunk": 3,
+      "toChunk": 3,
+      "prompt": "一枚民国袁大头银元静物特写，柔和侧光，深色绒布背景，写实珠宝摄影，画面中不要出现任何文字",
+      "layout": "pip_face",
+      "imageIntro": "渐显",
+      "outro": "缩小",
+      "sfx": "whoosh",
+      "reason": "讲到具体对象，必须看到实物"
+    }
+  ]
+}
