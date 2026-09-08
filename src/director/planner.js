@@ -2,6 +2,7 @@ import { CATALOG, DEFAULT_SUBTITLE_STYLE, names } from './catalog.js';
 import { lintPlan } from './lint.js';
 import { buildDirectorUserPrompt, buildRepairPrompt, DIRECTOR_SYSTEM_PROMPT } from './prompt.js';
 import { buildPlanSchema, validatePlan } from './schema.js';
+import { DEFAULT_BGM_TRACK } from './audio.js';
 
 /**
  * Make sure every chunk has an entry (the model sometimes skips quiet lines) and
@@ -110,7 +111,9 @@ export function normalizePlan(plan, chunks, catalog = CATALOG) {
     bold: true
   };
   if (typeof plan.bgm === 'string') plan.bgm = { track: plan.bgm, reason: '模型直接给出曲目' };
-  if (plan.bgm == null) plan.bgm = { track: 'none', reason: '模型未选择音乐' };
+  if (plan.bgm == null || plan.bgm.track == null) {
+    plan.bgm = { track: DEFAULT_BGM_TRACK, reason: '未选择时使用默认通用口播垫乐' };
+  }
   if (plan.tone && !catalog.tones.includes(plan.tone)) plan.tone = catalog.tones[0];
   return plan;
 }

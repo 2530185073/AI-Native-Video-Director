@@ -18,10 +18,12 @@ export const SFX = [
   { id: 'success', url: 'https://tryelements.dev/sfx/success.mp3', duration: 2.54, trim: 0.6, gain: 0.7, hint: '结论、答对、正确做法' }
 ];
 
+export const DEFAULT_BGM_TRACK = 'talk_default';
+
 export const BGM = [
-  { id: 'lofi_clean', url: 'https://assets.mixkit.co/music/764/764.mp3', duration: 98.17, hint: '干净 Lo-Fi，知识/干货/商业口播首选' },
-  { id: 'soft_pad', url: 'https://assets.mixkit.co/music/135/135.mp3', duration: 119.16, hint: '更软的垫乐，情感/故事/慢节奏' },
-  { id: 'talk_default', url: 'https://lf3-lv-music-tos.faceu.com/obj/tos-cn-ve-2774/oYACBQRCMlWBIrZipvQZhI5LAlUFYii0RwEPh', duration: 82.86, hint: '通用口播垫乐，带货/生活/轻快' }
+  { id: 'talk_default', url: 'https://lf3-lv-music-tos.faceu.com/obj/tos-cn-ve-2774/oYACBQRCMlWBIrZipvQZhI5LAlUFYii0RwEPh', duration: 82.86, hint: '默认通用口播垫乐（知识/干货/带货/生活都可用）' },
+  { id: 'lofi_clean', url: 'https://assets.mixkit.co/music/764/764.mp3', duration: 98.17, hint: '更干净的 Lo-Fi，偏理性干货时可选' },
+  { id: 'soft_pad', url: 'https://assets.mixkit.co/music/135/135.mp3', duration: 119.16, hint: '更软的垫乐，情感/故事/慢节奏' }
 ];
 
 /** Linear gain (1 = unchanged, 0.12 = 12%) → the dB value VectCut's `volume` expects. */

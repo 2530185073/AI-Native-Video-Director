@@ -39,11 +39,11 @@ const LEGACY_SYSTEM_PROMPT = `你是一位短视频后期总监，专门给“�
 3. 字幕高亮克制：一条字幕最多 1-2 个词，只高亮数字、价格、结论、动作、反转词；平铺直叙的句子一个都不要高亮。全片带高亮的片段不要超过一半——每句都亮等于没有重点。
 4. punch 只给“值得被记住”的词：数字、价格、结果、反差、金句、CTA。每分钟 4-8 个。全片花字风格统一在 1-2 种，颜色体系和字幕 highlightColor 呼应。
 5. zoom 用 1.08-1.2 的轻推，持续 2-5 秒后自然回落，用来强调结论句或情绪句；不要连续两句都推。
-6. broll 只在“讲到具体对象”时用：商品、场景、步骤、对比、数据、案例。展示对象用 fullscreen（1.5-4 秒），补充信息用 card_top，参照物用 pip_side。prompt 要写画面而不是概念，说明构图、主体、光线、风格，并明确“画面中不要出现任何文字”，全片图片风格统一。
+6. broll 只在“讲到具体对象”时用：商品、场景、步骤、对比、数据、案例。展示对象用 fullscreen（1.5-4 秒），补充信息用 card_top，参照物用 pip_side。prompt 要写画面而不是概念，说明构图、主体、光线、风格，并明确“画面中不要出现任何文字”，全片图片风格统一。重要介绍段（产品/材料名、核心卖点、规格对比、关键判断标准）必须有 AI 配图，不要只靠花字。
 7. effect 是调味料：转折/反差可用 0.3-0.6 秒的 色差故障；开场可用 模糊开幕；其余情况宁缺毋滥。
 8. 风格由内容决定，不是套模板：知识/商业内容偏克制（白字黑边+黄色高亮），带货/促销偏热（黄红金、花字更大），情感/故事偏文艺（纸纹/手写、渐显、少 punch），吐槽/娱乐偏综艺（综艺花字、晃动、故障）。
 9. 音效是标点，不是背景：只给“画面发生变化”的 beat 加 sfx。花字弹出用 pop，价格/数字/金句用 ding，警告/避坑用 error，结论/正确做法用 success，全屏图或切卡进入用 whoosh，列表逐条用 click。大约一半的 punch 和绝大多数 fullscreen broll 值得加音效，zoom 通常不加；每分钟不超过 8 个，同一秒内不叠两个。
-10. 垫乐：知识/干货/商业选 lofi_clean，情感/故事/慢节奏选 soft_pad，带货/生活/轻快选 talk_default；只有内容本身有音乐或极其严肃时选 none。垫乐音量由系统统一压低，你只需选曲。
+10. 垫乐：默认选 talk_default；情感/故事/慢节奏选 soft_pad；更理性干货可选 lofi_clean；只有内容本身有音乐或极其严肃时选 none。垫乐音量由系统统一压低，你只需选曲。
 
 硬性规则：
 - 只能使用给定词表中的名称和 ID，一个字都不能改。
@@ -150,9 +150,10 @@ export function rhythmBudget(duration, chunks = [], { script } = {}) {
   const middle = chunks.filter(chunk => chunk.end > 12 && chunk.start < Math.min(25, seconds - 3)).map(chunk => chunk.id);
   const lines = [
     `${DENSITY_LABEL[density.level]}（每分钟约 ${density.perMinute} 个数字/列表/对比信号）。`,
-    `punch 约 ${range(4, 8)} 个，zoom 约 ${range(3, 6)} 次，broll 约 ${range(2, 5)} 张（总时长占 20-30%），effect 0-${Math.max(1, Math.round(2 * minutes))} 个，sfx 不超过 ${Math.max(2, Math.round(8 * minutes))} 个。`,
+    `punch 约 ${range(4, 8)} 个，zoom 约 ${range(3, 6)} 次，broll 约 ${range(3, 6)} 张（总时长占 25-35%），effect 0-${Math.max(1, Math.round(2 * minutes))} 个，sfx 不超过 ${Math.max(2, Math.round(8 * minutes))} 个。`,
     `hook：片段 ${chunks[0]?.id ?? 1} 应有 punch（系统会把它提前到第一帧）；前 3 秒不要 fullscreen / pip_face。最后一句是结论或 CTA，要看见人脸，不要用图盖住。`,
-    '全片只有一个最大字号的花字（apex，通常是核心结论或那个数字），其余花字至少小 3 号；两个一样响的词等于没有高潮。'
+    '全片只有一个最大字号的花字（apex，通常是核心结论或那个数字），其余花字至少小 3 号；两个一样响的词等于没有高潮。',
+    '重要介绍段（产品/材料名、核心卖点、规格/成分/对比、关键判断标准）必须各配至少一张 AI 配图；抽象过渡句不要硬配。'
   ];
   if (middle.length) lines.push(`死中段（12-25 秒）：片段 ${middle[0]}-${middle[middle.length - 1]}，这里至少要有一次 broll 或 zoom。`);
   lines.push('相邻 beat 尽量不同类型；连续 8 秒以上没有任何画面变化的段落，系统会自动补一个 1.08 的轻推。');

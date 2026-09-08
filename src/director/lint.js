@@ -3,7 +3,7 @@ import { FLOWER_TEXT, flowerById } from './catalog.js';
 
 export const DEFAULT_LIMITS = {
   punchPerMinute: 8,
-  brollPerMinute: 4,
+  brollPerMinute: 5.5,
   effectPerMinute: 3,
   maxZoomSeconds: 8,
   // A push-in that pops back out inside two seconds reads as nausea, not emphasis.
@@ -15,7 +15,7 @@ export const DEFAULT_LIMITS = {
   // Under two seconds a full-frame cutaway reads as a glitch.
   minFullscreenSeconds: 2,
   // Above ~a third of the runtime the clip stops being a talking head and becomes a slideshow.
-  maxBrollRatio: 0.35,
+  maxBrollRatio: 0.42,
   // Viewers decide in the first three seconds; never cut away from the face before they know who is talking.
   hookSeconds: 3,
   maxEffectSeconds: 4,

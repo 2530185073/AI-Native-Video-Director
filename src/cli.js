@@ -27,7 +27,7 @@ const HELP = `AI Native Video Director — 数字人口播二次精剪
   --person x,y,w,h     数字人在画面中的位置框（0-1 比例或像素）
   --face x,y,w,h       脸部位置框（可选，默认从人物框推算）
   --canvas WxH         画幅，默认 1080x1920
-  --bgm URL|none       强制指定背景音乐（默认由 AI 从内置曲库选曲；none 关闭）
+  --bgm URL|none       强制指定背景音乐（默认曲目 talk_default；也可设环境变量 BGM_URL；none 关闭）
   --bgm-volume 0.12    背景音乐音量（线性，1 = 原音量；内部换算成 VectCut 的 dB）
   --sfx-volume 0.55    音效总音量（线性）
   --replace-audio      用 mp3 替换视频原声
