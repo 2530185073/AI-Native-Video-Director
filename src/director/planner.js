@@ -114,6 +114,10 @@ export function normalizePlan(plan, chunks, catalog = CATALOG) {
   if (plan.bgm == null || plan.bgm.track == null) {
     plan.bgm = { track: DEFAULT_BGM_TRACK, reason: '未选择时使用默认通用口播垫乐' };
   }
+  // talk_default is the product default pad; keep soft_pad / none when the model intends them.
+  if (plan.bgm.track === 'lofi_clean') {
+    plan.bgm = { track: DEFAULT_BGM_TRACK, reason: `${plan.bgm.reason || '改用默认通用口播垫乐'}`.trim() };
+  }
   if (plan.tone && !catalog.tones.includes(plan.tone)) plan.tone = catalog.tones[0];
   return plan;
 }
