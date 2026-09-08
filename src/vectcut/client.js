@@ -1,3 +1,8 @@
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 export const VECTCUT_BASE_URL = 'https://open.vectcut.com';
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -221,15 +226,54 @@ export class VectCutClient {
 
   async uploadTemporaryFile({ fileName, bytes, contentType }) {
     const init = await this.post('/sts/upload/agent_tmp/init', { file_name: fileName });
+    // OSS multipart posts from this environment often hang under Node fetch / HTTP2.
+    // Prefer curl --http1.1 for reliable large uploads; fall back to fetch.
+    const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+    const uploaded = this.#uploadWithCurl(init, buffer, contentType)
+      || await this.#uploadWithFetch(init, buffer, contentType);
+    if (!uploaded) {
+      throw new VectCutError('temporary upload failed: curl and fetch both failed', { endpoint: 'oss upload' });
+    }
+    return { url: init.download.signed_url, expiresAt: init.download.expire_at, objectKey: init.object_key };
+  }
+
+  #uploadWithCurl(init, buffer, contentType) {
+    const dir = mkdtempSync(join(tmpdir(), 'vectcut-up-'));
+    const localPath = join(dir, init.file_name || 'upload.bin');
+    try {
+      writeFileSync(localPath, buffer);
+      const args = [
+        '-sS', '--http1.1', '--connect-timeout', '30', '--max-time', '600',
+        '-X', init.upload.method || 'POST', init.upload.upload_url
+      ];
+      for (const [key, value] of Object.entries(init.upload.form_data || {})) {
+        args.push('-F', `${key}=${value}`);
+      }
+      args.push('-F', `file=@${localPath};type=${contentType || 'application/octet-stream'};filename=${init.file_name}`);
+      args.push('-o', '/dev/null', '-w', '%{http_code}');
+      const result = spawnSync('curl', args, { encoding: 'utf8' });
+      const code = String(result.stdout || '').trim();
+      if (result.status === 0 && /^20\d$/.test(code)) return true;
+      this.logger?.(`oss curl upload failed http=${code} status=${result.status} ${String(result.stderr || '').slice(0, 160)}`);
+      return false;
+    } catch (error) {
+      this.logger?.(`oss curl upload error: ${error.message}`);
+      return false;
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  async #uploadWithFetch(init, buffer, contentType) {
     const form = new FormData();
     for (const [key, value] of Object.entries(init.upload.form_data || {})) form.append(key, String(value));
-    form.append('file', new Blob([bytes], { type: contentType || 'application/octet-stream' }), init.file_name);
+    form.append('file', new Blob([buffer], { type: contentType || 'application/octet-stream' }), init.file_name);
     const response = await this.fetchImpl(init.upload.upload_url, { method: init.upload.method || 'POST', body: form });
     if (!response.ok) {
       const text = await response.text().catch(() => '');
       throw new VectCutError(`temporary upload failed: HTTP ${response.status} ${text.slice(0, 200)}`, { endpoint: 'oss upload', status: response.status });
     }
-    return { url: init.download.signed_url, expiresAt: init.download.expire_at, objectKey: init.object_key };
+    return true;
   }
 
   // ---- cloud render --------------------------------------------------------
