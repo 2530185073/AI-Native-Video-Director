@@ -44,7 +44,7 @@
 | 每句要变色/放大的关键词（0-2 个） | `text_styles` 局部样式 | `add_batch_text.text_styles_list` |
 | 爆点词大字（数字/价格/结论/反转/CTA） | 花字 or 纯色大字 + 入场/循环/出场动画，出现在人物头顶/脸侧/顶部 | `add_text` + `effect_effect_id` |
 | 镜头轻推强调（1.08-1.2，2-5 秒回落） | `uniform_scale` + `position_*_px` 关键帧，锁定脸部不跑偏 | `add_video_keyframe` |
-| B-roll 补画面（商品/场景/对比/数据） | AI 写生图 prompt → 生图 → 全屏 / 全屏 + 人物圆形小窗（pip_face，近景首选）/ 头顶卡片 / 脸侧画中画 / 字幕上横卡 | 生图聚合接口 + `add_image`（pip_face 另加一条圆形蒙版的静音 `add_video`） |
+| B-roll 补画面（商品/场景/对比/数据） | AI 写生图 prompt → Gemini 原生生图 → 上传临时 OSS → 全屏 / 全屏 + 人物圆形小窗（pip_face，近景首选）/ 头顶卡片 / 脸侧画中画 / 字幕上横卡 | `IMAGE_PROVIDER=gemini` + `add_image`（pip_face 另加一条圆形蒙版的静音 `add_video`） |
 | 场景特效（转折色差故障、开场模糊、电影画幅…） | 极低频、短时长 | `add_effect` |
 | 音效（pop / ding / whoosh / click / error / success） | 挂在 beat 上，在花字弹出、全屏图切入、金句的瞬间响一下；自动裁到最有力的 0.4-0.9 秒，双轨避免撞车 | `add_audio` |
 | 背景音乐选曲（Lo-Fi / 软垫乐 / 轻快口播 / 不加） | 按内容气质选，全片 12% 音量铺满（短曲自动循环、首尾淡入淡出） | `add_audio` |
@@ -149,7 +149,7 @@ src/
   director/       效果词表、音效/BGM 素材库、Plan schema、prompt（加载 SKILL.md + 密度感知的节奏预算）、planner（校验+修复循环）、lint
   inspect.js      开拍前：抽帧 → Gemini 看人脸框 / 字幕区是否杂乱 / 衣着颜色
   review.js       渲染后 QC：ffprobe 门禁 → 抽帧 → contact sheet → 视觉审片（硬性上限 + 承诺核对）
-  providers/      llm/gemini（默认，原生 generateContent）+ openai-compatible 备用、image（VectCut 聚合 / OpenAI-compatible）
+  providers/      llm/gemini（默认，原生 generateContent）+ openai-compatible 备用、image（默认 Gemini 原生生图 / VectCut 聚合 / OpenAI-compatible）
   vectcut/        真实 API 客户端、Plan→操作编译器、执行器（fallback/dry-run）、缩放换算
   pipeline.js     编排
   cli.js          命令行

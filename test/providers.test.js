@@ -8,7 +8,7 @@ import {
   toGeminiSchema
 } from '../src/providers/llm/index.js';
 import { VectCutClient, VectCutError } from '../src/vectcut/client.js';
-import { VectCutImageProvider, OpenAICompatibleImageProvider } from '../src/providers/image/index.js';
+import { VectCutImageProvider, OpenAICompatibleImageProvider, GeminiNativeImageProvider, createImageProvider } from '../src/providers/image/index.js';
 import { alignWithExternalService } from '../src/asr/external.js';
 import { alignWithVectCut } from '../src/asr/vectcut.js';
 import { getWordTimeline } from '../src/asr/timeline.js';
@@ -206,6 +206,73 @@ test('OpenAI-compatible image provider uploads base64 results through VectCut te
   assert.equal(image.url, 'https://oss/tmp.png');
   assert.equal(uploads[0].length, 9);
   assert.ok(uploads[0].fileName.endsWith('.png'));
+});
+
+test('Gemini native image provider posts generateContent IMAGE modality and uploads inline bytes', async () => {
+  const uploads = [];
+  const uploader = {
+    uploadTemporaryFile: async ({ fileName, bytes, contentType }) => {
+      uploads.push({ fileName, length: bytes.length, contentType });
+      return { url: 'https://oss/gemini.png', expiresAt: 'later' };
+    }
+  };
+  // Minimal 1x1 JPEG
+  const jpeg = Buffer.from(
+    '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAn/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAGfAP/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAQUCf//EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQMBAT8Bf//EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQIBAT8Bf//Z',
+    'base64'
+  );
+  let captured;
+  const fetchImpl = async (url, init) => {
+    captured = { url: String(url), body: JSON.parse(init.body), auth: init.headers.Authorization };
+    return jsonResponse(200, {
+      candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/jpeg', data: jpeg.toString('base64') } }] } }],
+      modelVersion: 'gemini-3.1-flash-image-preview'
+    });
+  };
+  const { GeminiNativeImageProvider } = await import('../src/providers/image/index.js');
+  const provider = new GeminiNativeImageProvider({
+    apiKey: 'sk-test',
+    baseUrl: 'https://api.zyai.online/v1beta',
+    model: 'gemini-3.1-flash-image-preview',
+    uploader,
+    fetchImpl
+  });
+  const image = await provider.generate({ prompt: '翡翠吊坠', aspect: '9:16' });
+  assert.equal(captured.url, 'https://api.zyai.online/v1beta/models/gemini-3.1-flash-image-preview:generateContent');
+  assert.deepEqual(captured.body.generationConfig.responseModalities, ['IMAGE']);
+  assert.equal(captured.body.generationConfig.imageConfig.aspectRatio, '9:16');
+  assert.equal(captured.auth, 'Bearer sk-test');
+  assert.equal(image.url, 'https://oss/gemini.png');
+  assert.equal(image.provider, 'gemini');
+  assert.equal(image.model, 'gemini-3.1-flash-image-preview');
+  assert.ok(uploads[0].fileName.endsWith('.jpg'));
+  assert.equal(uploads[0].contentType, 'image/jpeg');
+});
+
+test('Gemini native image provider accepts gateway URL-in-text responses', async () => {
+  const fetchImpl = async () => jsonResponse(200, {
+    candidates: [{ content: { parts: [{}, {}, { text: 'http://cdn.example/img.jpg' }] } }]
+  });
+  const provider = new GeminiNativeImageProvider({ apiKey: 'sk-test', baseUrl: 'https://api.zyai.online', fetchImpl });
+  const image = await provider.generate({ prompt: 'p', aspect: '1:1' });
+  assert.equal(image.url, 'http://cdn.example/img.jpg');
+  assert.equal(image.width, 1024);
+});
+
+test('createImageProvider defaults to gemini native', async () => {
+  const previous = process.env.IMAGE_PROVIDER;
+  delete process.env.IMAGE_PROVIDER;
+  try {
+    const provider = createImageProvider({
+      client: { uploadTemporaryFile: async () => ({ url: 'u' }) },
+      apiKey: 'sk-x',
+      baseUrl: 'https://api.zyai.online'
+    });
+    assert.ok(provider instanceof GeminiNativeImageProvider);
+  } finally {
+    if (previous == null) delete process.env.IMAGE_PROVIDER;
+    else process.env.IMAGE_PROVIDER = previous;
+  }
 });
 
 test('external ASR adapter posts configurable fields and normalises the response', async () => {

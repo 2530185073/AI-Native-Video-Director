@@ -9,7 +9,7 @@
 | 原始文案 | 字幕文本源、AI 理解内容的依据 | `--script` / `script` |
 | 逐字对照 | 把文案按时间戳对上音频 | **默认 Groq Whisper**（`GROQ_API_KEY`，词级时间戳 + 本地字符级对齐；**不把整段文案当 prompt**——实测会诱发 large-v3 幻听，`GROQ_WHISPER_PROMPT` 可改）。转写后会用文案的逐字精确匹配率自检，低于 `ASR_MIN_COVERAGE`（默认 0.6）先换 turbo 模型重试，仍不行才落到 VectCut。也可用 `ASR_ALIGN_URL` 接你自己的接口、`--words` 直接传结果文件；两者都没有时才用 VectCut「识别字幕」sta 模式兜底（计费） |
 | VectCut API Key | 草稿/生图/渲染（ASR 兜底） | `VECTCUT_API_KEY` |
-| 图片生成接口 | B-roll | `IMAGE_PROVIDER=vectcut`（默认，用 VectCut 聚合，无需上传）或 `openai-compatible`（Gemini/Imagen/自建网关） |
+| 图片生成接口 | B-roll | **默认 `IMAGE_PROVIDER=gemini`**：走 `LLM_BASE_URL` 的原生 `generateContent`（`IMAGE_MODEL=gemini-3.1-flash-image-preview`，key 复用 `LLM_API_KEY`），出图后上传到 VectCut 临时 OSS。也可 `vectcut`（聚合生图）或 `openai-compatible` |
 | Gemini Key | AI 导演 | `LLM_API_KEY` + `LLM_PROVIDER=gemini`（默认）。走原生 `…/v1beta/models/{model}:generateContent`；中转站填 `LLM_BASE_URL=https://xxx/v1beta`。需要 OpenAI 兼容时设 `LLM_PROVIDER=openai-compatible` |
 | 音效 / 背景音乐 | 声音设计 | 已内置在 `src/director/audio.js`（7 条 UI 音效 + 3 首垫乐，公网直链、时长已核验）。换素材改这个文件，或 `--bgm URL` 强制指定 |
 

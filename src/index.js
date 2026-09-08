@@ -28,4 +28,11 @@ export {
   simplifySchema,
   GEMINI_OPENAI_BASE_URL
 } from './providers/llm/index.js';
-export { createImageProvider, VectCutImageProvider, OpenAICompatibleImageProvider } from './providers/image/index.js';
+export {
+  createImageProvider,
+  VectCutImageProvider,
+  GeminiNativeImageProvider,
+  OpenAICompatibleImageProvider,
+  readImageDimensions,
+  parseSize
+} from './providers/image/index.js';
