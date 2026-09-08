@@ -40,9 +40,11 @@ export function buildPlanSchema(catalog = CATALOG) {
           color,
           strokeColor: color,
           strokeWidth: { type: 'integer', minimum: 0, maximum: 60 },
+          strokeOpacity: { type: 'number', minimum: 0, maximum: 100, description: '描边透明度 0-100（精确字幕模式常用 40）' },
           highlightColor: color,
           highlightScale: { type: 'number', minimum: 1, maximum: 1.6 },
           position: { type: 'string', enum: names(catalog.subtitlePositions) },
+          transformY: { type: 'number', minimum: -1, maximum: 1, description: 'CapCut 中心原点 Y，口播字幕默认 -0.4' },
           intro: { type: ['string', 'null'], enum: [...names(catalog.textIntro), null] },
           bold: { type: 'boolean' },
           background: {

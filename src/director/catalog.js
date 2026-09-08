@@ -109,6 +109,7 @@ export const SCENE_EFFECTS = [
 
 /** Fonts from `get_font_types` with good Simplified-Chinese coverage. */
 export const FONTS = [
+  { name: '新青年体', hint: '新青年体，口播字幕默认字体' },
   { name: 'SourceHanSansCN_Bold', hint: '思源黑体粗体，最稳的字幕字体' },
   { name: 'HarmonyOS_Sans_SC_Bold', hint: '鸿蒙黑体，现代、干净' },
   { name: 'MiSans_Heavy', hint: '小米黑体特粗，冲击力强，适合重点词' },
@@ -117,6 +118,27 @@ export const FONTS = [
   { name: 'SourceHanSerifCN_SemiBold', hint: '思源宋体，高级、知识付费、金融' },
   { name: 'ZY_Vigorous', hint: '有力手写感，运动、燃' }
 ];
+
+/**
+ * Locked talking-head subtitle look (exact/aligned subtitle mode).
+ * `transformY` is CapCut's centre-origin Y (−0.4 ≈ lower third on 9:16).
+ * `strokeOpacity` is 0–100 (CapCut UI scale).
+ */
+export const DEFAULT_SUBTITLE_STYLE = {
+  font: '新青年体',
+  fontSize: 13,
+  color: '#FFFFFF',
+  strokeColor: '#000000',
+  strokeWidth: 40,
+  strokeOpacity: 40,
+  highlightColor: '#FFE14D',
+  highlightScale: 1.25,
+  position: 'lower_third',
+  transformY: -0.4,
+  intro: null,
+  bold: true,
+  background: { enabled: false }
+};
 
 export const SUBTITLE_POSITIONS = [
   { name: 'lower_third', hint: '标准位置：人物下巴以下、画面下 1/4 之上，最常用' },

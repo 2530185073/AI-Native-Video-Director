@@ -34,9 +34,16 @@ test('compilePlan emits draft → video → keyframes → subtitles → beats �
   assert.equal(highlighted[0].start, 0);
   assert.equal(highlighted[0].end, 2);
   assert.equal(highlighted[0].style.color, '#FFE14D');
-  assert.equal(highlighted[0].style.size, 13);
+  assert.equal(highlighted[0].style.size, Math.round(13 * 1.25));
   assert.ok(subtitles.params.transform_y_px < 0);
-  assert.equal(subtitles.params.font, 'SourceHanSansCN_Bold');
+  assert.equal(subtitles.params.font, '新青年体');
+  assert.equal(subtitles.params.font_size, 13);
+  assert.equal(subtitles.params.font_color, '#FFFFFF');
+  assert.equal(subtitles.params.bold, true);
+  assert.equal(subtitles.params.border_color, '#000000');
+  assert.equal(subtitles.params.border_width, 40);
+  assert.equal(subtitles.params.border_alpha, 0.4);
+  assert.equal(subtitles.params.transform_y_px, Math.round(-0.4 * layout.canvas.height));
 
   const punch = ops.find(op => op.op === 'add_text');
   assert.equal(punch.params.text, '一万块');

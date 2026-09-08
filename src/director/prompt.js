@@ -184,7 +184,7 @@ ${describeCatalog(catalog)}
 - concept：一句话说明这条视频的包装策略（风格、色彩体系、节奏）。
 - tone：语气。
 - bgm：{ track, reason }，track 从词表选或 none。
-- subtitleStyle：全片字幕样式。fontSize 建议 9-12（竖屏口播），strokeWidth 建议 15-30，highlightScale 建议 1.15-1.35，intro 只在节奏快的内容上用（如 弹入 / 向上滑动），否则 null。background 一般关闭，只有背景杂乱时开启。
+- subtitleStyle：全片字幕样式。注意：字体/字号/颜色/描边/位置已被系统锁定为「新青年体 / 13 / #FFFFFF / 描边 #000000 宽度 40 透明度 40 / transformY=-0.4 / bold」，你只需决定 highlightColor、highlightScale、intro（节奏快时用 弹入 / 向上滑动，否则 null）和 background（一般关闭，背景杂乱时开启）。
 - chunks：每个片段一个条目，highlights 为要变色/放大的词（可以为空数组），hide 只在极少数需要“留白”的片段设为 true。所有片段都必须出现。
 - beats：punch / zoom / broll / effect 列表。
   - punch：chunkId、text、flowerId（或 null 用纯色）、color（flowerId 为 null 时必填，只能是 #FFFFFF 或 subtitleStyle.highlightColor——一个中性色加一个强调色，第三种颜色会被系统改回强调色）、fontSize 14-26、intro、loop（或 null）、position、outro（或 null）。

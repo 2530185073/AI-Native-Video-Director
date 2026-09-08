@@ -50,13 +50,36 @@ function highlightStyles(text, highlights, style) {
             underline: false,
             color: style.highlightColor
           },
-          border: { alpha: 1, color: style.strokeColor, width: style.strokeWidth }
+          border: {
+            alpha: strokeAlpha(style),
+            color: style.strokeColor,
+            width: style.strokeWidth
+          }
         });
         break;
       }
     }
   }
   return styles.sort((left, right) => left.start - right.start);
+}
+
+/** CapCut UI stroke opacity is 0–100; VectCut wants 0–1 alpha. */
+function strokeAlpha(style) {
+  const raw = style.strokeOpacity;
+  if (!Number.isFinite(raw)) return 1;
+  return Math.min(1, Math.max(0, raw > 1 ? raw / 100 : raw));
+}
+
+/**
+ * CapCut centre-origin Y → VectCut `transform_y_px`.
+ * CapCut y = −0.4 ⇒ transform_y_px = −0.4 × canvas.height (matches layout's 2×-height unit).
+ */
+function subtitleTransformY(style, layout, canvas) {
+  const placement = layout.subtitle(style.position);
+  if (Number.isFinite(style.transformY)) {
+    return Math.round(style.transformY * canvas.height);
+  }
+  return placement.transform_y_px;
 }
 
 function subtitleBaseParams(style, layout, canvas) {
@@ -72,9 +95,9 @@ function subtitleBaseParams(style, layout, canvas) {
     track_name: TRACKS.subtitle,
     relative_index: LAYERS.subtitle,
     transform_x_px: placement.transform_x_px,
-    transform_y_px: placement.transform_y_px,
+    transform_y_px: subtitleTransformY(style, layout, canvas),
     fixed_width: placement.fixed_width,
-    border_alpha: 1,
+    border_alpha: strokeAlpha(style),
     border_color: style.strokeColor,
     border_width: style.strokeWidth,
     shadow_enabled: true,
